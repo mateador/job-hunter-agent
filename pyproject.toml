@@ -1,0 +1,25 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "job-hunter-agent"
+version = "0.1.0"
+description = "An observable agentic workflow for job research and tailored application generation."
+requires-python = ">=3.10"
+dependencies = [
+    "openai>=1.40.0",
+    "pydantic>=2.7.0",
+    "python-dotenv>=1.0.1",
+    "rich>=13.7.1"
+]
+
+[project.scripts]
+job-agent = "job_agent.main:main"
+job-agent-check-openai = "job_agent.check_openai:main"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
