@@ -18,7 +18,8 @@ class FreeHireSearchInput(BaseModel):
     # Optional facets the agent can use to narrow down the search
     work_mode: str | None = Field(default=None, description="remote, hybrid, or onsite")
     seniority: str | None = Field(default=None, description="intern, junior, middle, senior, lead, staff, principal")
-    regions: str | None = Field(default=None, description="global, north_america, latam, eu, uk, etc.")
+    regions: str | None = Field(default=None, description="global, north_america, latam, eu, etc.")
+    countries: str | None = Field(default=None, description="uk, etc.")
 
 
 class CompanyResearchInput(BaseModel):
@@ -88,11 +89,12 @@ def _extract_jobs(payload) -> list[dict]:
 
 
 def search_freehire_jobs(
-    keywords: list[str], 
-    limit: int = 5, 
+    keywords: list[str],
+    limit: int = 5,
     work_mode: str | None = None,
     seniority: str | None = None,
-    regions: str | None = None
+    regions: str | None = None,
+    countries: str | None = None,
 ) -> dict:
     """
     Call the FreeHire /agent/jobs/search API.
@@ -129,6 +131,8 @@ def search_freehire_jobs(
         params["seniority"] = args.seniority
     if args.regions:
         params["regions"] = args.regions
+    if args.countries:
+        params["countries"] = args.countries
 
     headers = {
         "Accept": "application/json",
@@ -279,12 +283,21 @@ def _cli() -> None:
     parser.add_argument("--keywords", nargs="+", help="Keywords for FreeHire.")
     parser.add_argument("--company", help="Company name to research.")
     parser.add_argument("--remote", action="store_true", help="Filter for remote jobs.")
-    
+    parser.add_argument("--region", help="Filter by region (e.g. uk, eu, global, north_america).")
+    parser.add_argument("--country", help="Filter by country code (e.g. UK, DE, BR).")
+    parser.add_argument("--seniority", help="Filter by seniority (e.g. senior, lead, middle).")
+
     args = parser.parse_args()
 
     if args.keywords:
         work_mode = "remote" if args.remote else None
-        result = search_freehire_jobs(keywords=args.keywords, work_mode=work_mode)
+        result = search_freehire_jobs(
+            keywords=args.keywords,
+            work_mode=work_mode,
+            regions=args.region,
+            countries=args.country,
+            seniority=args.seniority,
+        )
         print(json.dumps(result, ensure_ascii=False, indent=2))
 
     if args.company:

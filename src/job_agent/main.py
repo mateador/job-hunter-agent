@@ -54,7 +54,7 @@ def main() -> None:
     parser.add_argument(
         "--max-steps",
         type=int,
-        default=5,
+        default=8,
         help="Maximum number of agent loop steps before stopping.",
     )
 
