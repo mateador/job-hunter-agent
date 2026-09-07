@@ -6,13 +6,7 @@ SYSTEM_PROMPT = dedent(
     """
     You are a job research and application preparation agent.
 
-    Your long-term purpose is to help a candidate:
-    - search for relevant jobs,
-    - compare jobs against their CV,
-    - explain why they are a good match,
-    - prepare tailored CV and cover letter drafts.
-
-    You are currently in Day 2 of implementation.
+    You are currently in Day 3 of implementation. You operate under strict guardrails.
 
     You have access to two tools:
 
@@ -22,26 +16,26 @@ SYSTEM_PROMPT = dedent(
        {
          "keywords": ["Python", "Software Engineer"],
          "limit": 5,
-         "work_mode": "remote" (optional: remote, hybrid, onsite),
-         "seniority": "senior" (optional: junior, middle, senior, lead),
-         "regions": "eu" (optional: global, north_america, latam, eu, etc.)
+         "work_mode": "remote" (optional),
+         "seniority": "senior" (optional),
+         "regions": "uk" (optional, defaults to uk if omitted),
+         "posted_within_days": 30 (optional, defaults to 30 to avoid expired jobs)
        }
-       Output: A JSON object containing normalized job results with full Markdown descriptions.
 
     2. research_company
        Purpose: Search the public web for information about a company.
-       Input shape:
+       Input shape (MUST be a single JSON object, NEVER an array/list):
        {
          "company_name": "Acme Corp",
-         "max_results": 3
+         "max_results": 3,
+         "industry_context": "AI software" (CRITICAL: Include the industry or tech stack to avoid researching the wrong company with the same name)
        }
-       Output: A JSON object containing search results about the company.
 
-    Your workflow should be:
-    Step 1: Call search_freehire_jobs using the candidate keywords.
-    Step 2: Review the returned jobs. Select up to 2 promising jobs based on the CV.
-    Step 3: For each selected company, call research_company once.
-    Step 4: When you have enough information, return final_answer.
+    STRICT RULES:
+    1. You MUST select AT MOST 2 jobs to research. Do not research more than 2 companies.
+    2. When calling research_company, you MUST provide "industry_context" based on the job description (e.g., "AI machine learning", "fintech payments").
+    3. When writing the final answer, your "match_reason" MUST be highly specific. Do not use generic phrases like "aligns with experience". 
+    4. You MUST populate "cv_evidence" with exact quotes or specific projects from the candidate's CV that prove the match (e.g., "Candidate built an offline-first PWA using Preact/Sanic which matches the requirement for...").
 
     You must always respond with valid JSON only. No Markdown, no code fences.
 
@@ -56,7 +50,11 @@ SYSTEM_PROMPT = dedent(
         "summary": "short summary",
         "jobs_reviewed": 0,
         "selected_jobs": [
-          {"job_id": null, "company": "Name", "position": "Role", "url": null, "location": null, "snippet": null, "match_reason": "Why"}
+          {
+            "job_id": null, "company": "Name", "position": "Role", "url": null, "location": null, "snippet": null, 
+            "match_reason": "Highly specific reason based on CV evidence",
+            "cv_evidence": ["Exact skill or project from CV that proves the match"]
+          }
         ],
         "company_research": [
           {"company": "Name", "summary": "Research", "sources": ["url"]}
@@ -67,6 +65,7 @@ SYSTEM_PROMPT = dedent(
     """
 ).strip()
 
+# ... (Keep build_initial_user_prompt, build_json_repair_prompt, and build_tool_result_prompt exactly as they were in Day 2) ...
 
 def build_initial_user_prompt(cv_text: str, keywords: list[str]) -> str:
     keywords_text = ", ".join(keywords)
@@ -79,14 +78,14 @@ def build_initial_user_prompt(cv_text: str, keywords: list[str]) -> str:
         {keywords_text}
 
         Task:
-        Use the available tools to search for jobs that may match this CV.
-        Then research only the most promising companies.
-        Finally, produce a structured Day 2 summary.
+        1. Call search_freehire_jobs.
+        2. Review the jobs. Select AT MOST 2 highly promising jobs.
+        3. Call research_company for those 2 companies (remember to pass industry_context!).
+        4. Return final_answer with strict CV evidence.
 
         Start by calling search_freehire_jobs.
         """
     ).strip()
-
 
 def build_json_repair_prompt(raw_response: str, error: str) -> str:
     return dedent(
@@ -97,7 +96,6 @@ def build_json_repair_prompt(raw_response: str, error: str) -> str:
         Please return a corrected JSON response only. No Markdown. No code fences.
         """
     ).strip()
-
 
 def build_tool_result_prompt(tool_name: str, tool_arguments: dict, tool_result: dict) -> str:
     tool_arguments_text = json.dumps(tool_arguments, ensure_ascii=False, indent=2)

@@ -19,6 +19,11 @@ class JobCandidate(BaseModel):
     location: str | None = None
     snippet: str | None = None
     match_reason: str | None = None
+    # NEW GUARDRAIL: Force the LLM to cite specific CV evidence
+    cv_evidence: list[str] = Field(
+        default_factory=list, 
+        description="Specific quotes, skills, or projects from the candidate's CV that prove this match."
+    )
 
 
 class CompanyResearch(BaseModel):
@@ -28,7 +33,6 @@ class CompanyResearch(BaseModel):
 
 
 class AgentFinalAnswer(BaseModel):
-    """Day 2 final answer schema."""
     summary: str = Field(description="Short summary of findings.")
     jobs_reviewed: int = Field(default=0, ge=0)
     selected_jobs: list[JobCandidate] = Field(default_factory=list)
@@ -37,48 +41,25 @@ class AgentFinalAnswer(BaseModel):
 
 
 class AgentDecision(BaseModel):
-    """Structured response expected from the model on every loop iteration."""
     reasoning_summary: str = Field(description="Short explanation of what the agent is doing.")
-    
-    # Day 2: Added "tool_call"
-    next_action: Literal["tool_call", "final_answer"] = Field(
-        description="Whether to call a tool or provide the final answer."
-    )
+    next_action: Literal["tool_call", "final_answer"] = Field(description="Whether to call a tool or provide the final answer.")
     message_to_user: str = Field(description="Brief user-facing message for this step.")
 
-    # Day 2: Tool calling fields
-    tool_name: Literal["search_freehire_jobs", "research_company"] | None = Field(
-        default=None,
-        description="Required when next_action is tool_call."
-    )
-    tool_arguments: dict[str, Any] | None = Field(
-        default=None,
-        description="Required when next_action is tool_call."
-    )
+    tool_name: Literal["search_freehire_jobs", "research_company"] | None = Field(default=None)
+    tool_arguments: dict[str, Any] | None = Field(default=None)
 
-    final_answer: AgentFinalAnswer | None = Field(
-        default=None,
-        description="Required when next_action is final_answer."
-    )
+    final_answer: AgentFinalAnswer | None = Field(default=None)
 
     @model_validator(mode="after")
     def validate_action(self) -> "AgentDecision":
         if self.next_action == "tool_call":
-            if not self.tool_name:
-                raise ValueError("tool_name is required when next_action is tool_call.")
-            if self.tool_arguments is None:
-                self.tool_arguments = {}
-            if self.final_answer is not None:
-                self.final_answer = None
-
+            if not self.tool_name: raise ValueError("tool_name is required.")
+            if self.tool_arguments is None: self.tool_arguments = {}
+            if self.final_answer is not None: self.final_answer = None
         if self.next_action == "final_answer":
-            if self.final_answer is None:
-                raise ValueError("final_answer is required when next_action is final_answer.")
-            if self.tool_name is not None:
-                self.tool_name = None
-            if self.tool_arguments is not None:
-                self.tool_arguments = None
-
+            if self.final_answer is None: raise ValueError("final_answer is required.")
+            if self.tool_name is not None: self.tool_name = None
+            if self.tool_arguments is not None: self.tool_arguments = None
         return self
 
 
@@ -86,9 +67,11 @@ class AgentState(BaseModel):
     run_id: str
     cv_text: str
     keywords: list[str]
-    max_steps: int = 8  # Increased for Day 2 tool loops
+    max_steps: int = 8
     steps_taken: int = 0
     status: RunStatus = RunStatus.RUNNING
     messages: list[dict[str, Any]] = Field(default_factory=list)
     final_answer: AgentFinalAnswer | None = None
     error: str | None = None
+    # NEW GUARDRAIL: Track tool usage to enforce budgets
+    tool_call_counts: dict[str, int] = Field(default_factory=dict)
