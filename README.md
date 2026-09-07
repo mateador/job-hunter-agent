@@ -2,9 +2,9 @@
 
 [![Python](https://img.shields.io/badge/Python-3.10+-blue.svg)](https://www.python.org/)
 [![LLM](https://img.shields.io/badge/LLM-OpenAI%20GPT--4o--mini-green.svg)](https://platform.openai.com/)
-[![Status](https://img.shields.io/badge/Status-Day%202%20Complete-orange.svg)](#)
+[![Status](https://img.shields.io/badge/Status-Week%201%20Complete-brightgreen.svg)](#)
 
-An observable agentic workflow that automates job research, CV matching, and application drafting. Built as a Week 1 portfolio prototype to demonstrate reliable, tool-using AI agents with full execution transparency.
+An observable agentic workflow that automates job research, CV matching, and tailored application drafting. Built in 7 days as a portfolio prototype to demonstrate reliable, tool-using AI agents with full execution transparency.
 
 ---
 
@@ -14,11 +14,11 @@ Given a CV and a set of job search keywords, the agent:
 
 1. **Searches** for matching roles using the [FreeHire](https://freehire.me) jobs API.
 2. **Researches** the most promising companies using web search.
-3. **Compares** job descriptions against the candidate's CV.
-4. **Explains** why each role is a good match.
-5. **Produces** a structured summary with tailored application guidance.
+3. **Compares** job descriptions against the candidate's CV with cited evidence.
+4. **Generates** tailored CV bullets and cover letters for each selected role.
+5. **Produces** a consolidated Markdown report ready for application.
 
-Every decision, tool call, and error is visible in the console trace. Nothing is hidden.
+Every decision, tool call, and error is captured in a structured JSONL audit trail. Nothing is hidden.
 
 ---
 
@@ -34,12 +34,20 @@ graph TD
     D --> G["Web Search<br/>DuckDuckGo"]
     F --> B
     G --> B
-    E --> H["Day 2 Summary"]
+    E --> H["Application Generator<br/>(Post-Loop LLM Call)"]
+    H --> I["Report Generator"]
+    I --> J["output/report.md"]
+
+    K["Audit Logger"] -.->|"JSONL events"| L["logs/run_*.jsonl"]
+    B -.-> K
+    D -.-> K
+    H -.-> K
 
     style A fill:#e1f5fe
-    style E fill:#c8e6c9
+    style J fill:#c8e6c9
     style F fill:#fff3e0
     style G fill:#fff3e0
+    style L fill:#f3e5f5
 ```
 
 The agent operates in a strict loop:
@@ -48,23 +56,24 @@ The agent operates in a strict loop:
 prompt → model → structured JSON → tool call or final answer → repeat
 ```
 
-It stops when:
+After the loop completes, a focused post-loop LLM call generates application materials for each selected job. These are compiled into a single consolidated Markdown report.
+
+The loop stops when:
 - the model returns a valid `final_answer`, or
-- the `max_steps` limit is reached.
+- the `max_steps` limit is reached, or
+- a guardrail forces termination.
 
 ---
 
-## 📦 Output Strategy
+## 📦 Output
 
-To keep the prototype lean and focused, the final Day 7 output will be a **single consolidated Markdown report** saved to `output/`.
+The agent produces a single consolidated Markdown report in `output/` containing:
 
-The report will contain:
-- matched companies and roles,
-- match reasoning for each,
-- tailored CV highlights,
-- cover letter drafts.
-
-This approach keeps debugging simple and avoids premature file-management complexity.
+- Match analysis with cited CV evidence for each role
+- Tailored CV bullets rewritten for each specific job
+- Full cover letters addressed appropriately (including recruitment agency detection)
+- Company research summaries with sources
+- Recommended next steps
 
 ---
 
@@ -74,11 +83,11 @@ This approach keeps debugging simple and avoids premature file-management comple
 |-----|-------|--------|
 | 1 | Agent loop, structured JSON output, max-step limit, OpenAI integration | ✅ Complete |
 | 2 | Tool use: FreeHire job search API + DuckDuckGo web search | ✅ Complete |
-| 3 | Guardrails: input validation, output filtering, rate limits | 🔲 Pending |
-| 4 | Context & memory: context window management, deliberate persistence | 🔲 Pending |
-| 5 | Audit trail: full JSONL execution logging with trace viewer | 🔲 Pending |
-| 6 | Real workflow: end-to-end job application prep | 🔲 Pending |
-| 7 | Checkpoint: demo, polish, portfolio packaging | 🔲 Pending |
+| 3 | Guardrails: geography default, job freshness, evidence-based matching, research budget, defensive JSON parsing | ✅ Complete |
+| 4 | Context & memory: tiktoken counting, context window pruning at 30k tokens | ✅ Complete |
+| 5 | Audit trail: JSONL event logging, trace viewer CLI | ✅ Complete |
+| 6 | Real workflow: tailored CV bullets, cover letters, consolidated Markdown report | ✅ Complete |
+| 7 | Checkpoint: validation, portfolio packaging, limitations, next iteration | ✅ Complete |
 
 ---
 
@@ -93,19 +102,15 @@ This approach keeps debugging simple and avoids premature file-management comple
 ### Installation
 
 ```bash
-# Clone the repository
 git clone https://github.com/YOUR_USERNAME/job-hunter-agent.git
 cd job-hunter-agent
 
-# Create and activate a virtual environment
 python -m venv .venv
 source .venv/bin/activate        # macOS / Linux
 # .venv\Scripts\Activate.ps1     # Windows PowerShell
 
-# Install the project in editable mode
 pip install -e .
 
-# Create your environment file
 cp .env.example .env
 ```
 
@@ -129,26 +134,17 @@ Verify everything works:
 python -m job_agent.check_openai
 ```
 
-Expected output:
-
-```text
-✓ API key accepted by OpenAI models.list().
-Chat completion succeeded. Model replied: 'ok'
-```
-
 ---
 
 ### 🌐 FreeHire API Configuration
 
-This project uses the **dedicated agent endpoint** provided by FreeHire:
+This project uses the dedicated agent endpoint:
 
 ```text
 GET https://freehire.me/api/v1/agent/jobs/search
 ```
 
-This endpoint returns **full job descriptions in Markdown format**, which is significantly better for LLM consumption than the standard truncated preview.
-
-No authentication is required. All parameters are passed as query strings.
+This endpoint returns full job descriptions in Markdown format, which is significantly better for LLM consumption than the standard truncated preview. No authentication is required.
 
 The `.env` file is pre-configured with sensible defaults:
 
@@ -159,14 +155,14 @@ FREEHIRE_DESCRIPTION_FORMAT=markdown
 
 ---
 
-### 📋 Environment Variables Reference
+### 📋 Environment Variables
 
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
 | `OPENAI_API_KEY` | Yes | — | Your OpenAI secret API key |
 | `OPENAI_MODEL` | No | `gpt-4o-mini` | Model used for agent reasoning |
 | `FREEHIRE_SEARCH_URL` | No | `https://freehire.me/api/v1/agent/jobs/search` | FreeHire agent search endpoint |
-| `FREEHIRE_DESCRIPTION_FORMAT` | No | `markdown` | Job description format (`html`, `text`, `markdown`) |
+| `FREEHIRE_DESCRIPTION_FORMAT` | No | `markdown` | Job description format |
 
 ---
 
@@ -174,8 +170,8 @@ FREEHIRE_DESCRIPTION_FORMAT=markdown
 
 This project uses two CV files to separate real personal data from the public repository:
 
-| File | Purpose | Committed to GitHub? |
-|------|---------|----------------------|
+| File | Purpose | Committed? |
+|------|---------|------------|
 | `private/alexandre_cv.md` | Real CV for actual agent runs | ❌ No (gitignored) |
 | `examples/dummy_cv.md` | Sanitized CV for demos and contributors | ✅ Yes |
 
@@ -191,8 +187,6 @@ Run against the safe demo CV:
 python -m job_agent.main --cv examples/dummy_cv.md --keywords examples/keywords.json
 ```
 
-> **Never commit real personal data.** The `private/` directory is excluded from version control by `.gitignore`.
-
 ---
 
 ## 🚀 Running the Agent
@@ -203,22 +197,17 @@ python -m job_agent.main --cv examples/dummy_cv.md --keywords examples/keywords.
 python -m job_agent.check_openai
 ```
 
-### 2. Test Tools Independently (Day 2)
-
-Test the FreeHire job search tool directly:
+### 2. Test Tools Independently
 
 ```bash
-# Basic search
+# Job search (defaults to UK region, last 30 days)
 python -m job_agent.tools --keywords Python "Software Engineer"
 
-# Search for remote roles only
+# Job search with filters
 python -m job_agent.tools --keywords Python "Backend Engineer" --remote
 
-# Test company research
-python -m job_agent.tools --company "Worldpay"
-
-# Test both at once
-python -m job_agent.tools --keywords Java "Spring Boot" --company "Sicredi"
+# Company research with industry context
+python -m job_agent.tools --company "Worldpay" --context "fintech payments"
 ```
 
 ### 3. Run the Full Agent
@@ -230,18 +219,44 @@ python -m job_agent.main \
   --max-steps 8
 ```
 
-The agent will:
-1. Load your CV and keywords.
-2. Call `search_freehire_jobs` to find matching roles.
-3. Review results and select the most promising companies.
-4. Call `research_company` for external context.
-5. Produce a structured Day 2 summary.
+### 4. View the Audit Trail
+
+```bash
+# List all runs
+python -m job_agent.view_trace --list
+
+# View a specific run
+python -m job_agent.view_trace --file logs/run_20260907_135609_06876e8d.jsonl
+```
+
+### 5. Read the Generated Report
+
+```bash
+cat output/job_application_report_*.md
+```
+
+---
+
+## 🛡️ Guardrails
+
+| Guardrail | Layer | Description |
+|-----------|-------|-------------|
+| Input validation | Code | Rejects empty or too-short CVs, empty keyword lists |
+| Max-step limit | Code | Hard stop at `max_steps` (default 8) |
+| Geography default | Tool | Auto-defaults to `regions=uk` if LLM omits it |
+| Job freshness | Tool | `posted_within_days=30` filters stale listings |
+| Research budget | Code | Hard cap of 2 `research_company` calls per run |
+| Contextual research | Tool | Appends industry context to prevent wrong-company matches |
+| Evidence-based matching | Schema | `cv_evidence` field forces LLM to cite specific CV content |
+| Defensive JSON parsing | Code | Auto-unwraps `[{...}]` → `{...}` in tool arguments |
+| JSON repair loop | Prompt | Feeds parse errors back to LLM for self-correction |
+| Context pruning | Code | Compresses history when token count exceeds 30k |
+| Output schema enforcement | Code | Pydantic validation on every LLM response |
+| Recruitment agency detection | Prompt | Cover letters addressed to consultant, not agency |
 
 ---
 
 ## 🔍 FreeHire API Notes
-
-Discovered during Day 2 implementation by reviewing the [FreeHire API documentation](https://freehire.me/docs/api).
 
 ### Key Parameters
 
@@ -249,21 +264,19 @@ Discovered during Day 2 implementation by reviewing the [FreeHire API documentat
 |-----------|------|-------------|
 | `q` | string | Full-text search over title, company, and description |
 | `limit` | integer | Page size, 1–100 |
-| `description_format` | string | `html` (default), `text`, or `markdown` |
-| `sort` | string | `created_at`, `posted_at`, `salary_min`, `salary_max` |
-| `order` | string | `asc` or `desc` (default) |
+| `description_format` | string | `html`, `text`, or `markdown` |
 | `work_mode` | string | `remote`, `hybrid`, `onsite` |
 | `seniority` | string | `intern`, `junior`, `middle`, `senior`, `lead`, `staff`, `principal` |
 | `regions` | string | `global`, `north_america`, `latam`, `eu`, `uk`, etc. |
-| `skills` | string | Comma-separated skill tags, supports `_mode=and` and `_exclude` |
+| `posted_within_days` | integer | Only return jobs posted in the last N days |
 
 ### Agent Endpoint vs Standard Endpoint
 
 | Feature | `/jobs/search` | `/agent/jobs/search` |
 |---------|---------------|----------------------|
-| Description length | Truncated preview | **Full verbatim text** |
+| Description length | Truncated preview | Full verbatim text |
 | Format options | No | `html`, `text`, `markdown` |
-| Intended consumer | Web UI | **Programmatic / AI agents** |
+| Intended consumer | Web UI | Programmatic / AI agents |
 
 This project uses the agent endpoint exclusively.
 
@@ -273,26 +286,34 @@ This project uses the agent endpoint exclusively.
 
 ```text
 job-hunter-agent/
-├── .env                          # Local secrets (gitignored)
-├── .env.example                # Template for environment variables
-├── .gitignore                  # Excludes secrets and private data
-├── README.md                   # This file
-├── pyproject.toml              # Project metadata and dependencies
+├── .env                              # Local secrets (gitignored)
+├── .env.example                    # Template for environment variables
+├── .gitignore                      # Excludes secrets, logs, output, private data
+├── README.md                       # This file
+├── pyproject.toml                  # Project metadata and dependencies
 ├── examples/
-│   ├── dummy_cv.md             # Sanitized CV (safe for GitHub)
-│   └── keywords.json           # Target job search keywords
-├── private/                    # Real CV and personal data (gitignored)
+│   ├── dummy_cv.md                 # Sanitized CV (safe for GitHub)
+│   └── keywords.json              # Target job search keywords
+├── logs/                           # JSONL audit trails (gitignored)
+│   └── run_*.jsonl
+├── output/                         # Generated reports (gitignored)
+│   └── job_application_report_*.md
+├── private/                        # Real CV and personal data (gitignored)
 │   └── alexandre_cv.md
 └── src/
     └── job_agent/
         ├── __init__.py
-        ├── agent_runner.py     # Core agent loop and tool execution
-        ├── check_openai.py     # OpenAI API connectivity checker
-        ├── llm_client.py       # Centralized OpenAI wrapper
-        ├── main.py             # CLI entrypoint
-        ├── models.py           # Pydantic schemas and state models
-        ├── prompts.py          # System prompts and prompt builders
-        └── tools.py            # FreeHire API + web search tools
+        ├── agent_runner.py         # Core agent loop, guardrails, post-loop generation
+        ├── application_generator.py # Tailored CV bullets + cover letter generation
+        ├── audit_logger.py         # JSONL structured event logging
+        ├── check_openai.py         # OpenAI API connectivity checker
+        ├── llm_client.py           # Centralized OpenAI wrapper
+        ├── main.py                 # CLI entrypoint
+        ├── models.py              # Pydantic schemas and state models
+        ├── prompts.py             # System prompts and prompt builders
+        ├── report_generator.py    # Consolidated Markdown report writer
+        ├── tools.py               # FreeHire API + DuckDuckGo web search
+        └── view_trace.py          # Audit trail viewer CLI
 ```
 
 ---
@@ -301,75 +322,68 @@ job-hunter-agent/
 
 ### `Missing OPENAI_API_KEY`
 
-Your `.env` file is missing or incomplete. Make sure:
-- `.env` exists in the project root,
-- it contains `OPENAI_API_KEY=sk-...`,
-- you are running commands from the project root.
+Your `.env` file is missing or incomplete. Ensure `.env` exists in the project root and contains `OPENAI_API_KEY=sk-...`.
 
 ### `401 Unauthorized` from OpenAI
 
-Your API key is invalid. Check:
-- the key was copied correctly (no extra spaces),
-- the key has not been revoked,
-- billing is enabled on your OpenAI account.
+Your API key is invalid. Check that the key was copied correctly and billing is enabled.
 
 ### `429 Too Many Requests` from OpenAI
 
-Usually one of:
-- insufficient billing balance,
-- rate limit reached,
-- usage limit reached.
-
-Check the [OpenAI billing dashboard](https://platform.openai.com/settings/organization/billing).
+Insufficient billing balance, rate limit reached, or usage limit reached. Check the [OpenAI billing dashboard](https://platform.openai.com/settings/organization/billing).
 
 ### `requires a different Python`
 
-Your Python version is below 3.10. Check with:
-
-```bash
-python --version
-```
-
-The project requires Python 3.10+.
+The project requires Python 3.10+. Check with `python --version`.
 
 ### FreeHire returns zero jobs
 
-Verify the search terms are not too narrow. Try:
-
-```bash
-python -m job_agent.tools --keywords Python
-```
-
-If that works but your keywords don't, the query may be too specific. The `q` parameter does full-text search across title, company, and description.
+The search terms may be too narrow. Try `python -m job_agent.tools --keywords Python` as a baseline.
 
 ### DuckDuckGo search fails
 
-DuckDuckGo occasionally rate-limits automated requests. The tool will return a structured error rather than crashing. Wait a minute and retry, or reduce `max_results`.
+DuckDuckGo occasionally rate-limits automated requests. The tool returns a structured error rather than crashing. Wait a minute and retry.
 
 ---
 
 ## 🔒 Security Notes
 
-Because this is a public portfolio repository:
-
-- **Never commit `.env`** — it is blocked by `.gitignore`
+- **Never commit `.env`** — blocked by `.gitignore`
 - **Never commit your real CV** — keep it in `private/` which is gitignored
-- **Never hardcode API keys** in source code
+- **Never commit audit logs** — they contain CV text, blocked by `.gitignore`
+- **Never commit generated reports** — they contain personal details, blocked by `.gitignore`
 - **Set usage limits** in the OpenAI dashboard to prevent runaway costs
 - **Use `gpt-4o-mini`** during development to keep token costs low
 
-If you accidentally commit a secret, revoke it immediately in the OpenAI dashboard and rotate it.
+---
+
+## 🚧 Known Limitations
+
+These are honest, deliberate scope boundaries — not bugs.
+
+| Limitation | Why | Mitigation Path |
+|-----------|-----|-----------------|
+| Recruitment agencies are researched, not end-clients | FreeHire lists the posting agency as the company | Day 6 prompt instructs the LLM to detect agencies and address the end-client. A future iteration could parse the job description to extract the real company name. |
+| No expired job validation | Job boards use Cloudflare bot protection that blocks automated HEAD requests | FreeHire's `posted_within_days` filter reduces stale results at the source. A future iteration could use a headless browser for validation. |
+| Single LLM provider | OpenAI only | The architecture centralises all LLM calls behind `llm_client.py`. Swapping providers requires changing one file. |
+| No retry logic for transient API failures | Week 1 scope | The agent receives structured errors and decides whether to retry or stop. A future iteration could add exponential backoff. |
+| No evaluation harness | Week 1 scope | A future iteration would add a test suite with known-good inputs and expected output ranges. |
+| Cover letters are drafts, not final | LLM-generated text requires human review | The report is explicitly framed as a starting point. Every letter should be reviewed before sending. |
+| No multi-run memory | Each run is independent | A future iteration could store past applications in SQLite to avoid duplicate research. |
 
 ---
 
-## 🚧 Current Limitations
+## 🔮 Next Iteration Roadmap
 
-- **No guardrails beyond basic validation.** Day 3 will add stricter input filtering, output schema enforcement, and tool call limits.
-- **No persistent audit trail.** Console output only. Day 5 will add JSONL logging with a trace viewer.
-- **No tailored CV or cover letter generation.** Day 6 will add full application document drafting.
-- **No Markdown report output.** Day 7 will produce the final consolidated report in `output/`.
-- **Single LLM provider.** OpenAI only. The architecture is designed to be provider-agnostic, but no abstraction layer exists yet.
-- **No retry logic for transient failures.** If a tool call fails, the agent receives the error and decides what to do.
+If this project continued into Week 2, the priorities would be:
+
+1. **Evaluation harness** — Define 5 known-good input/output pairs and run them automatically to catch regressions.
+2. **End-client extraction** — Parse job descriptions to identify the actual hiring company when the listing is from a recruitment agency.
+3. **Multi-run memory** — SQLite store of past applications to avoid re-researching the same companies.
+4. **Human-in-the-loop approval** — Pause before generating cover letters so the candidate can approve the selected jobs.
+5. **PDF export** — Convert the Markdown report to a formatted PDF with proper letter formatting.
+6. **Cost tracking** — Log actual token usage and API costs per run in the audit trail.
+7. **Provider abstraction** — Support Anthropic Claude and local models through a common interface.
 
 ---
 
@@ -377,9 +391,10 @@ If you accidentally commit a secret, revoke it immediately in the OpenAI dashboa
 
 - [OpenAI API](https://platform.openai.com/) — LLM reasoning and structured output
 - [FreeHire API](https://freehire.me/docs/api) — Job search with full descriptions
-- [DuckDuckGo Search](https://pypi.org/project/duckduckgo-search/) — Company research
+- [DuckDuckGo Search](https://pypi.org/project/ddgs/) — Company research
 - [Pydantic](https://docs.pydantic.dev/) — Input/output validation
 - [Rich](https://rich.readthedocs.io/) — Console output formatting
+- [tiktoken](https://github.com/openai/tiktoken) — Token counting for context management
 
 ---
 

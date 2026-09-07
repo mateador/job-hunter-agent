@@ -1,0 +1,33 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+.venv/
+venv/
+env/
+dist/
+build/
+*.egg-info/
+
+# Environment variables
+.env
+
+# Local/private data
+output/
+logs/
+private/
+my_cv.md
+real_cv.md
+personal_cv.md
+
+# IDE/editor
+.vscode/
+.idea/
+.DS_Store
+
+# Test/cache
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
