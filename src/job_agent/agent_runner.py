@@ -8,6 +8,7 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
 
+from job_agent.application_generator import generate_application_package
 from job_agent.audit_logger import AuditLogger
 from job_agent.llm_client import LLMClient
 from job_agent.models import AgentDecision, AgentState, RunStatus
@@ -17,6 +18,7 @@ from job_agent.prompts import (
     build_json_repair_prompt,
     build_tool_result_prompt,
 )
+from job_agent.report_generator import generate_report
 from job_agent.tools import execute_tool
 
 console = Console()
@@ -126,6 +128,59 @@ def validate_initial_inputs(cv_text: str, keywords: list[str]) -> None:
     if not keywords: raise ValueError("Keywords list cannot be empty.")
 
 
+def generate_applications_and_report(state: AgentState, audit: AuditLogger) -> str | None:
+    """
+    Day 6: Post-loop application generation.
+
+    For each selected job, generate a tailored cover letter and CV bullets,
+    then write everything to a consolidated Markdown report.
+    """
+
+    if not state.final_answer or not state.final_answer.selected_jobs:
+        console.print("[yellow]No selected jobs found. Skipping application generation.[/yellow]")
+        return None
+
+    audit.log("application_generation_started", {
+        "jobs_to_process": len(state.final_answer.selected_jobs),
+    })
+
+    application_packages = {}
+
+    for job in state.final_answer.selected_jobs:
+        console.print(f"\n[cyan]Generating application package for: {job.company} — {job.position}[/cyan]")
+
+        # Find matching company research
+        research = next(
+            (r for r in state.final_answer.company_research if r.company == job.company),
+            None,
+        )
+
+        pkg = generate_application_package(
+            cv_text=state.cv_text,
+            job=job,
+            company_research=research,
+        )
+
+        application_packages[job.company] = pkg
+
+        audit.log("application_generated", {
+            "company": job.company,
+            "position": job.position,
+            "has_cover_letter": bool(pkg.get("cover_letter")),
+            "cv_bullets_count": len(pkg.get("tailored_cv_bullets", [])),
+        })
+
+    # Generate the consolidated report
+    report_path = generate_report(
+        final_answer=state.final_answer,
+        application_packages=application_packages,
+    )
+
+    audit.log("report_generated", {"report_path": report_path})
+
+    return report_path
+
+
 def run_agent(cv_text: str, keywords: list[str], max_steps: int = 8) -> AgentState:
     validate_initial_inputs(cv_text=cv_text, keywords=keywords)
 
@@ -133,7 +188,6 @@ def run_agent(cv_text: str, keywords: list[str], max_steps: int = 8) -> AgentSta
     state = create_initial_state(cv_text=cv_text, keywords=keywords, max_steps=max_steps)
     audit = AuditLogger(run_id=state.run_id)
 
-    # --- AUDIT: Run Started ---
     audit.log("run_started", {
         "cv_length_chars": len(cv_text),
         "keywords": keywords,
@@ -143,7 +197,7 @@ def run_agent(cv_text: str, keywords: list[str], max_steps: int = 8) -> AgentSta
 
     console.print(Panel(
         f"Started run at {utc_now_iso()}\nRun ID: {state.run_id}\nAudit Log: {audit.file_path}",
-        title="Job Hunter Agent — Day 5",
+        title="Job Hunter Agent — Day 6",
         border_style="cyan",
     ))
 
@@ -160,7 +214,6 @@ def run_agent(cv_text: str, keywords: list[str], max_steps: int = 8) -> AgentSta
         try:
             prune_context_if_needed(state, audit)
 
-            # --- AUDIT: LLM Request ---
             token_estimate = count_tokens(state.messages)
             audit.log("llm_request", {
                 "message_count": len(state.messages),
@@ -174,19 +227,15 @@ def run_agent(cv_text: str, keywords: list[str], max_steps: int = 8) -> AgentSta
                 decision = parse_agent_decision(raw_response)
             except (json.JSONDecodeError, ValidationError) as parse_error:
                 console.print(Panel(str(parse_error), title="JSON Parse Error", border_style="red"))
-
-                # --- AUDIT: Parse Error ---
                 audit.log("json_parse_error", {
                     "error": str(parse_error),
                     "raw_response": raw_response[:2000],
                 })
-
                 state.messages.append({"role": "assistant", "content": raw_response})
                 state.messages.append({"role": "user", "content": build_json_repair_prompt(raw_response, str(parse_error))})
                 state.steps_taken += 1
                 continue
 
-            # --- AUDIT: LLM Response ---
             audit.log("llm_response", {
                 "next_action": decision.next_action,
                 "tool_name": decision.tool_name,
@@ -198,17 +247,14 @@ def run_agent(cv_text: str, keywords: list[str], max_steps: int = 8) -> AgentSta
 
             if decision.next_action == "tool_call":
 
-                # --- DAY 3 GUARDRAIL: Budget Limit ---
                 current_research_count = state.tool_call_counts.get("research_company", 0)
                 if decision.tool_name == "research_company" and current_research_count >= 2:
                     console.print("[yellow]⚠️ Guardrail: Max company research limit (2) reached. Forcing final answer.[/yellow]")
-
                     audit.log("guardrail_triggered", {
                         "guardrail": "max_research_budget",
                         "action": "forced_final_answer",
                         "research_count": current_research_count,
                     })
-
                     state.messages.append({
                         "role": "user",
                         "content": "SYSTEM GUARDRAIL: You have reached the maximum limit of company research calls (2). You must now immediately return next_action as 'final_answer' using the information you already have."
@@ -218,7 +264,6 @@ def run_agent(cv_text: str, keywords: list[str], max_steps: int = 8) -> AgentSta
 
                 console.print(f"[magenta]Executing tool: {decision.tool_name}...[/magenta]")
 
-                # --- AUDIT: Tool Call ---
                 audit.log("tool_call", {
                     "tool_name": decision.tool_name,
                     "tool_arguments": decision.tool_arguments,
@@ -234,7 +279,6 @@ def run_agent(cv_text: str, keywords: list[str], max_steps: int = 8) -> AgentSta
                     else state.tool_call_counts.get(decision.tool_name, 0) + 1
                 )
 
-                # --- AUDIT: Tool Result ---
                 audit.log("tool_result", {
                     "tool_name": decision.tool_name,
                     "status": tool_result.get("status", "unknown"),
@@ -259,7 +303,6 @@ def run_agent(cv_text: str, keywords: list[str], max_steps: int = 8) -> AgentSta
                 state.final_answer = decision.final_answer
                 state.status = RunStatus.COMPLETED
 
-                # --- AUDIT: Run Completed ---
                 audit.log("run_completed", {
                     "steps_taken": state.steps_taken,
                     "jobs_reviewed": decision.final_answer.jobs_reviewed if decision.final_answer else 0,
@@ -273,6 +316,14 @@ def run_agent(cv_text: str, keywords: list[str], max_steps: int = 8) -> AgentSta
             audit.log("run_failed", {"error": str(exc), "steps_taken": state.steps_taken})
             break
 
+    # --- DAY 6: POST-LOOP APPLICATION GENERATION ---
+    if state.status == RunStatus.COMPLETED and state.final_answer:
+        console.rule("[bold cyan]Generating Application Materials")
+        report_path = generate_applications_and_report(state, audit)
+        if report_path:
+            console.print(f"\n[bold green]✓ Full application report: {report_path}[/bold green]")
+    # ------------------------------------------------
+
     console.rule("[bold cyan]Run Complete")
     if state.status == RunStatus.COMPLETED:
         console.print(Panel("Agent completed successfully.", title="Status", border_style="green"))
@@ -281,7 +332,6 @@ def run_agent(cv_text: str, keywords: list[str], max_steps: int = 8) -> AgentSta
     else:
         console.print(Panel(state.error or "Unknown failure.", title="Status", border_style="red"))
 
-    console.print(f"\n[dim]Audit trail saved to: {audit.file_path}[/dim]")
-    console.print(f"[dim]View it with: python -m job_agent.view_trace --file {audit.file_path}[/dim]")
+    console.print(f"\n[dim]Audit trail: {audit.file_path}[/dim]")
 
     return state
