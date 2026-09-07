@@ -70,10 +70,16 @@ def _extract_jobs(payload) -> list[dict]:
         
         # The agent endpoint provides the full description!
         description = item.get("description") or item.get("snippet") or ""
+
+        # 1. Try to find the ID (added 'jid' as FreeHire might use that)
+        raw_job_id = item.get("id") or item.get("job_id") or item.get("slug") or item.get("jid")
+        
+        # 2. Only convert to string if it actually exists, otherwise leave as Python None (JSON null)
+        job_id = str(raw_job_id) if raw_job_id else None
         
         jobs.append(
             {
-                "job_id": str(item.get("id") or item.get("job_id") or item.get("slug")),
+                "job_id": job_id,
                 "company": str(company),
                 "position": str(position),
                 "url": item.get("url") or item.get("apply_url"),
@@ -183,15 +189,21 @@ def search_freehire_jobs(
 
 
 def _search_duckduckgo(query: str, max_results: int) -> list[dict]:
+    # Try the new package name first
     try:
-        from duckduckgo_search import DDGS
+        from ddgs import DDGS
     except ImportError:
+        # Fallback to the old package name if it's still installed
         try:
-            from ddgs import DDGS
+            from duckduckgo_search import DDGS
         except ImportError as exc:
-            raise RuntimeError("Could not import DuckDuckGo search library.") from exc
+            raise RuntimeError(
+                "Could not import DuckDuckGo search library. "
+                "Please run: pip install ddgs"
+            ) from exc
 
     results = []
+
     with DDGS() as ddgs:
         raw_results = list(ddgs.text(query, max_results=max_results))
 
