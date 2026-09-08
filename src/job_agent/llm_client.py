@@ -3,6 +3,7 @@ import logging
 from openai import OpenAI
 from .audit_logger import AuditLogger
 from .retry import execute_with_retry
+from .config import LLM_TIMEOUT
 
 logger = logging.getLogger(__name__)
 
@@ -13,7 +14,9 @@ class LLMClient:
         api_key = os.getenv("OPENAI_API_KEY")
         if not api_key:
             raise ValueError("OPENAI_API_KEY environment variable not set.")
-        self.client = OpenAI(api_key=api_key)
+        
+        # Day 10: Enforce timeout on all LLM calls
+        self.client = OpenAI(api_key=api_key, timeout=LLM_TIMEOUT)
 
     def chat(self, messages: list, **kwargs) -> str:
         def _call(**call_kwargs):
@@ -32,7 +35,6 @@ class LLMClient:
                 kwargs_dict["messages"] = [msgs[0]] + msgs[-(len(msgs)//2):]
             return kwargs_dict
 
-        # Pass messages in kwargs so they can be modified if RETRY_MODIFIED triggers
         call_kwargs = {"messages": messages, **kwargs}
         
         return execute_with_retry(

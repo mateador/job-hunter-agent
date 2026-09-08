@@ -3,6 +3,7 @@ from duckduckgo_search import DDGS
 import requests
 from .audit_logger import AuditLogger
 from .retry import execute_with_retry
+from .config import FREEHIRE_TIMEOUT, DUCKDUCKGO_TIMEOUT
 
 logger = logging.getLogger(__name__)
 
@@ -23,8 +24,12 @@ def search_freehire(
             "posted_within_days": 30,
             "regions": "uk"
         }
-        # Basic timeout added; Day 10 will enforce strict global timeouts
-        response = requests.get(FREEHIRE_BASE_URL, params=params, timeout=10)
+        # Day 10: Use centralized timeout config
+        response = requests.get(
+            FREEHIRE_BASE_URL, 
+            params=params, 
+            timeout=FREEHIRE_TIMEOUT
+        )
         response.raise_for_status()
         return response.json().get("jobs", [])
 
@@ -52,7 +57,7 @@ def search_duckduckgo(
     **kwargs
 ) -> list:
     def _call(**call_kwargs):
-        with DDGS() as ddgs:
+        with DDGS(timeout=DUCKDUCKGO_TIMEOUT) as ddgs:
             results = list(ddgs.text(call_kwargs["query"], max_results=call_kwargs["limit"]))
             return results
 
