@@ -1,73 +1,35 @@
 import json
-import os
-from datetime import datetime, timezone
+from datetime import datetime
+from typing import Any, Dict, Optional
 from pathlib import Path
-from job_agent.failures import FailureRecord
-
-
-def utc_now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat()
-
 
 class AuditLogger:
-    """
-    Day 5: Structured JSONL audit trail.
-
-    Every event in the agent loop is appended as a single JSON line
-    to a per-run file inside the logs/ directory.
-
-    Design decisions:
-    - JSONL (one JSON object per line) for easy appending and grep.
-    - One file per run, named with timestamp + short run_id.
-    - Sensitive fields (CV text) are logged locally but logs/ is gitignored.
-    - API keys are NEVER logged (they live in env vars, not messages).
-    """
-
-    def log_failure(self, failure_record: "FailureRecord") -> None:
-        """Log a structured failure record."""
-        self.log("failure", {
-            "category": failure_record.category.value,
-            "retry_policy": failure_record.retry_policy.value,
-            "message": failure_record.message,
-            "source": failure_record.source,
-            "original_error_type": failure_record.original_error_type,
-            "is_recoverable": failure_record.is_recoverable,
-            "attempt": failure_record.attempt,
-        })
-
-    def __init__(self, run_id: str, logs_dir: str = "logs"):
-        self.run_id = run_id
-        self.logs_dir = Path(logs_dir)
-        self.logs_dir.mkdir(parents=True, exist_ok=True)
-
-        timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
-        short_id = run_id[:8]
-        self.log_file = self.logs_dir / f"run_{timestamp}_{short_id}.jsonl"
-
-        self.step = 0
-        self._event_count = 0
-
-    def log(self, event_type: str, data: dict) -> None:
-        entry = {
-            "timestamp": utc_now_iso(),
-            "run_id": self.run_id,
-            "step": self.step,
+    def __init__(self, trace_dir: str = "traces"):
+        self.trace_dir = Path(trace_dir)
+        self.trace_dir.mkdir(parents=True, exist_ok=True)
+        self.trace_file = self.trace_dir / f"trace_{datetime.now().strftime('%Y%m%d_%H%M%S')}.jsonl"
+        
+    def log_event(self, event_type: str, **kwargs):
+        event = {
+            "timestamp": datetime.utcnow().isoformat(),
             "event_type": event_type,
-            "data": data,
+            **kwargs
         }
-
-        with open(self.log_file, "a", encoding="utf-8") as f:
-            f.write(json.dumps(entry, ensure_ascii=False, default=str) + "\n")
-
-        self._event_count += 1
-
-    def increment_step(self) -> None:
-        self.step += 1
-
-    @property
-    def file_path(self) -> str:
-        return str(self.log_file)
-
-    @property
-    def event_count(self) -> int:
-        return self._event_count
+        with open(self.trace_file, "a") as f:
+            f.write(json.dumps(event, default=str) + "\n")
+            
+    def log_attempt(self, tool: str, attempt_number: int, status: str, details: Optional[Dict[str, Any]] = None):
+        """Logs granular attempt telemetry for retry observability."""
+        self.log_event(
+            event_type="attempt",
+            tool=tool,
+            attempt_number=attempt_number,
+            status=status,
+            details=details or {}
+        )
+        
+    def log_failure(self, failure_record):
+        self.log_event(
+            event_type="failure",
+            failure_record=failure_record.model_dump()
+        )
