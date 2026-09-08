@@ -7,6 +7,7 @@ import urllib.parse
 import requests
 from pydantic import BaseModel, Field, ValidationError
 
+from job_agent.failures import classify_exception, FailureRecord
 
 class FreeHireSearchInput(BaseModel):
     keywords: list[str] = Field(min_length=1, description="List of keywords to search for.")
@@ -132,7 +133,16 @@ def search_freehire_jobs(
             "jobs_returned": len(jobs), "jobs": jobs
         }
     except Exception as exc:
-        return {"status": "error", "tool": "search_freehire_jobs", "message": "Network failure.", "details": str(exc)}
+        failure = classify_exception(exc, source="search_freehire_jobs")
+        return {
+            "status": "error",
+            "tool": "search_freehire_jobs",
+            "message": failure.message,
+            "failure_category": failure.category.value,
+            "retry_policy": failure.retry_policy.value,
+            "is_recoverable": failure.is_recoverable,
+            "details": str(exc),
+        }
 
 
 def _search_duckduckgo(query: str, max_results: int) -> list[dict]:
@@ -169,7 +179,16 @@ def research_company(company_name: str, max_results: int = 3, industry_context: 
         if results:
             return {"status": "success", "tool": "research_company", "source": "duckduckgo", "company_name": args.company_name, "results_returned": len(results), "results": results}
     except Exception as exc:
-        return {"status": "error", "tool": "research_company", "message": f"Search failed: {exc}"}
+        failure = classify_exception(exc, source="research_company")
+        return {
+            "status": "error",
+            "tool": "research_company",
+            "message": failure.message,
+            "failure_category": failure.category.value,
+            "retry_policy": failure.retry_policy.value,
+            "is_recoverable": failure.is_recoverable,
+            "details": str(exc),
+        }
 
     return {"status": "error", "tool": "research_company", "message": f"No research found for: {args.company_name}"}
 
@@ -182,7 +201,16 @@ def execute_tool(tool_name: str, tool_arguments: dict) -> dict:
     except TypeError as exc:
         return {"status": "error", "tool": tool_name, "message": "Invalid tool arguments.", "details": str(exc)}
     except Exception as exc:
-        return {"status": "error", "tool": tool_name, "message": "Execution failure.", "details": str(exc)}
+        failure = classify_exception(exc, source=f"execute_tool:{tool_name}")
+        return {
+            "status": "error",
+            "tool": tool_name,
+            "message": failure.message,
+            "failure_category": failure.category.value,
+            "retry_policy": failure.retry_policy.value,
+            "is_recoverable": failure.is_recoverable,
+            "details": str(exc),
+        }
 
 def _cli() -> None:
     parser = argparse.ArgumentParser(description="Smoke test Day 3 tools.")

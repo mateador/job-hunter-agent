@@ -2,6 +2,7 @@ import json
 import os
 from datetime import datetime, timezone
 from pathlib import Path
+from job_agent.failures import FailureRecord
 
 
 def utc_now_iso() -> str:
@@ -21,6 +22,18 @@ class AuditLogger:
     - Sensitive fields (CV text) are logged locally but logs/ is gitignored.
     - API keys are NEVER logged (they live in env vars, not messages).
     """
+
+    def log_failure(self, failure_record: "FailureRecord") -> None:
+        """Log a structured failure record."""
+        self.log("failure", {
+            "category": failure_record.category.value,
+            "retry_policy": failure_record.retry_policy.value,
+            "message": failure_record.message,
+            "source": failure_record.source,
+            "original_error_type": failure_record.original_error_type,
+            "is_recoverable": failure_record.is_recoverable,
+            "attempt": failure_record.attempt,
+        })
 
     def __init__(self, run_id: str, logs_dir: str = "logs"):
         self.run_id = run_id
