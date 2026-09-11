@@ -2,8 +2,8 @@ import json
 
 from rich.console import Console
 
-from job_agent.llm_client import LLMClient
-from job_agent.models import CompanyResearch, JobCandidate
+from .llm_client import LLMClient
+from .models import CompanyResearch, JobCandidate
 
 console = Console()
 
