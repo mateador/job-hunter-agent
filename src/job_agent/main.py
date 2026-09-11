@@ -1,94 +1,71 @@
+"""
+Day 11: CLI entrypoint with resume capability.
+"""
 import argparse
-import json
-from pathlib import Path
+import logging
+from datetime import datetime
 
 from rich.console import Console
-from rich.panel import Panel
+from rich.logging import RichHandler
 
-from src.job_agent.agent_runner import run_agent
-
+from .agent_runner import AgentRunner
+from .audit_logger import AuditLogger
+from .checkpoint import CheckpointManager
+from .report_generator import generate_report
 
 console = Console()
 
-
-def load_cv(path: str) -> str:
-    cv_path = Path(path)
-
-    if not cv_path.exists():
-        raise FileNotFoundError(f"CV file not found: {path}")
-
-    return cv_path.read_text(encoding="utf-8")
-
-
-def load_keywords(path: str) -> list[str]:
-    keywords_path = Path(path)
-
-    if not keywords_path.exists():
-        raise FileNotFoundError(f"Keywords file not found: {path}")
-
-    data = json.loads(keywords_path.read_text(encoding="utf-8"))
-
-    if not isinstance(data, list):
-        raise ValueError("Keywords file must contain a JSON list of strings.")
-
-    return data
-
-
-def main() -> None:
-    parser = argparse.ArgumentParser(
-        description="Day 1 Job Hunter Agent runner."
+def setup_logging(verbose: bool = False):
+    level = logging.DEBUG if verbose else logging.INFO
+    logging.basicConfig(
+        level=level,
+        format="%(message)s",
+        datefmt="[%X]",
+        handlers=[RichHandler(console=console, rich_tracebacks=True)]
     )
 
-    parser.add_argument(
-        "--cv",
-        required=True,
-        help="Path to a Markdown or text CV file.",
-    )
-
-    parser.add_argument(
-        "--keywords",
-        required=True,
-        help="Path to a JSON file containing a list of job search keywords.",
-    )
-
-    parser.add_argument(
-        "--max-steps",
-        type=int,
-        default=8,
-        help="Maximum number of agent loop steps before stopping.",
-    )
-
+def main():
+    parser = argparse.ArgumentParser(description="AI Job Hunting Agent")
+    parser.add_argument("query", help="Job search query")
+    parser.add_argument("--max-jobs", type=int, default=10, help="Maximum jobs to process")
+    parser.add_argument("--model", default="gpt-4o-mini", help="OpenAI model to use")
+    parser.add_argument("--verbose", "-v", action="store_true", help="Enable verbose logging")
+    parser.add_argument("--resume", action="store_true", help="Resume from last checkpoint")
+    parser.add_argument("--run-id", help="Run ID for checkpoint (auto-generated if not provided)")
+    
     args = parser.parse_args()
-
+    setup_logging(args.verbose)
+    
+    # Initialize managers
+    run_id = args.run_id or datetime.now().strftime("%Y%m%d_%H%M%S")
+    audit_logger = AuditLogger()
+    checkpoint_manager = CheckpointManager(run_id=run_id)
+    
+    # Initialize and run agent
+    agent = AgentRunner(
+        audit_logger=audit_logger,
+        checkpoint_manager=checkpoint_manager,
+        model=args.model,
+        max_jobs=args.max_jobs
+    )
+    
+    console.print(f"[bold green]Starting agent run: {run_id}[/bold green]")
+    
     try:
-        cv_text = load_cv(args.cv)
-        keywords = load_keywords(args.keywords)
-
-        final_state = run_agent(
-            cv_text=cv_text,
-            keywords=keywords,
-            max_steps=args.max_steps,
-        )
-
-        if final_state.final_answer:
-            console.print(
-                Panel(
-                    final_state.final_answer.model_dump_json(indent=2),
-                    title="Day 1 Final Output",
-                    border_style="green",
-                )
-            )
-
-    except Exception as exc:
-        console.print(
-            Panel(
-                str(exc),
-                title="Fatal Error",
-                border_style="red",
-            )
-        )
+        result = agent.run(query=args.query, resume=args.resume)
+        
+        # Generate report
+        report_file = generate_report(result)
+        console.print(f"[bold green]Report generated: {report_file}[/bold green]")
+        console.print(f"[bold]Checkpoint file: {result['checkpoint_file']}[/bold]")
+        
+    except KeyboardInterrupt:
+        console.print("[bold yellow]Interrupted by user. State saved to checkpoint.[/bold yellow]")
+        console.print(f"[bold]Resume with: python -m src.job_agent.main '{args.query}' --resume --run-id {run_id}[/bold]")
+    except Exception as e:
+        console.print(f"[bold red]Error: {e}[/bold red]")
+        console.print(f"[bold]Resume with: python -m src.job_agent.main '{args.query}' --resume --run-id {run_id}[/bold]")
         raise
-
 
 if __name__ == "__main__":
     main()
