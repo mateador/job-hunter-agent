@@ -1,5 +1,5 @@
 """
-Day 12: CLI entrypoint with robust resume capability.
+Day 13: CLI entrypoint with partial completion reporting.
 """
 import argparse
 import logging
@@ -131,9 +131,25 @@ def main():
             resume_from=args.resume_from
         )
 
+        # Generate report
         report_file = generate_report(result)
-        console.print(f"[bold green]Report generated: {report_file}[/bold green]")
-        console.print(f"[bold]Checkpoint file: {result['checkpoint_file']}[/bold]")
+        
+        # Display summary
+        status = result["status"]
+        apps_count = len(result["applications"])
+        failed_count = len(result.get("failed_jobs", []))
+        total_jobs = len(result["jobs_found"])
+        
+        console.print("")
+        if status == "completed":
+            console.print(f"[bold green]✅ Completed: {apps_count}/{total_jobs} jobs processed[/bold green]")
+        elif status == "partial":
+            console.print(f"[bold yellow]⚠️  Partial: {apps_count}/{total_jobs} jobs processed, {failed_count} failed[/bold yellow]")
+        else:
+            console.print(f"[bold red]❌ Failed: 0/{total_jobs} jobs processed[/bold red]")
+        
+        console.print(f"[bold]Report: {report_file}[/bold]")
+        console.print(f"[bold]Checkpoint: {result['checkpoint_file']}[/bold]")
 
     except ResumeError as e:
         console.print(f"[bold red]Resume error: {e}[/bold red]")

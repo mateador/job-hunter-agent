@@ -1,122 +1,188 @@
+"""
+Day 14: Audit trail viewer with recovery narrative mode.
+"""
 import argparse
 import json
-import sys
 from pathlib import Path
+from datetime import datetime
 
 from rich.console import Console
-from rich.panel import Panel
 from rich.table import Table
-from rich.syntax import Syntax
+from rich.panel import Panel
+from rich.text import Text
 
 console = Console()
 
-EVENT_COLORS = {
-    "run_started": "cyan",
-    "llm_request": "dim",
-    "llm_response": "white",
-    "tool_call": "magenta",
-    "tool_result": "magenta",
-    "guardrail_triggered": "yellow",
-    "json_parse_error": "red",
-    "context_pruned": "yellow",
-    "run_completed": "green",
-    "run_failed": "red",
-}
 
-
-def list_runs(logs_dir: str = "logs") -> None:
-    logs_path = Path(logs_dir)
-    if not logs_path.exists():
-        console.print("[yellow]No logs directory found. Run the agent first.[/yellow]")
-        return
-
-    files = sorted(logs_path.glob("run_*.jsonl"), reverse=True)
-
-    if not files:
-        console.print("[yellow]No audit logs found.[/yellow]")
-        return
-
-    table = Table(title="Available Agent Runs")
-    table.add_column("#", style="cyan")
-    table.add_column("File", style="white")
-    table.add_column("Size", style="dim")
-
-    for i, f in enumerate(files, 1):
-        size_kb = f.stat().st_size / 1024
-        table.add_row(str(i), f.name, f"{size_kb:.1f} KB")
-
-    console.print(table)
-    console.print(f"\n[dim]View a run with: python -m job_agent.view_trace --file logs/<filename>[/dim]")
-
-
-def view_run(file_path: str) -> None:
-    path = Path(file_path)
-    if not path.exists():
-        console.print(f"[red]File not found: {file_path}[/red]")
-        sys.exit(1)
-
+def load_trace(trace_file: Path) -> list[dict]:
+    """Load all events from a trace file."""
     events = []
-    with open(path, "r", encoding="utf-8") as f:
+    with open(trace_file, "r") as f:
         for line in f:
-            line = line.strip()
-            if line:
-                events.append(json.loads(line))
+            if line.strip():
+                try:
+                    events.append(json.loads(line))
+                except json.JSONDecodeError:
+                    continue
+    return events
 
-    if not events:
-        console.print("[yellow]No events found in this log file.[/yellow]")
-        return
 
-    run_id = events[0].get("run_id", "unknown")
-    console.print(Panel(f"Audit Trail — Run {run_id}", border_style="cyan"))
+def show_trace(trace_file: Path):
+    """Display trace events in a table."""
+    events = load_trace(trace_file)
+
+    table = Table(title=f"Audit Trail: {trace_file.name}")
+    table.add_column("Timestamp", style="dim", width=19)
+    table.add_column("Event Type", style="cyan")
+    table.add_column("Details", style="white")
 
     for event in events:
-        etype = event.get("event_type", "unknown")
-        step = event.get("step", "?")
-        ts = event.get("timestamp", "")
-        data = event.get("data", {})
-        color = EVENT_COLORS.get(etype, "white")
+        timestamp = event.get("timestamp", "")[:19]
+        event_type = event.get("event_type", "unknown")
 
-        header = f"[{color}]Step {step} | {etype} | {ts}[/{color}]"
-        body = json.dumps(data, ensure_ascii=False, indent=2, default=str)
+        # Build details string
+        details_parts = []
+        for key, value in event.items():
+            if key not in ("timestamp", "event_type"):
+                if isinstance(value, dict):
+                    details_parts.append(f"{key}={len(value)} items")
+                elif isinstance(value, list):
+                    details_parts.append(f"{key}={len(value)} items")
+                else:
+                    details_parts.append(f"{key}={value}")
 
-        # Truncate very long bodies for readability
-        if len(body) > 3000:
-            body = body[:3000] + "\n... (truncated)"
+        details = ", ".join(details_parts)
+        table.add_row(timestamp, event_type, details[:80])
 
-        console.print(header)
-        console.print(Panel(body, border_style=color, expand=False))
+    console.print(table)
+
+
+def show_narrative(trace_file: Path, run_id: str):
+    """
+    Display a human-readable narrative of the agent run,
+    highlighting recovery events.
+    """
+    events = load_trace(trace_file)
+
+    console.print(Panel(
+        f"[bold]Recovery Narrative for Run: {run_id}[/bold]\n"
+        f"Total events: {len(events)}",
+        title="Audit Trail Analysis"
+    ))
+    console.print()
+
+    # Group events by phase
+    resume_events = [e for e in events if e.get("event_type") == "resume"]
+    job_processed = [e for e in events if e.get("event_type") == "job_processed"]
+    job_failed = [e for e in events if e.get("event_type") == "job_failed"]
+    attempts = [e for e in events if e.get("event_type") == "attempt"]
+
+    # Show recovery events
+    if resume_events:
+        console.print("[bold green]🔄 RECOVERY EVENTS[/bold green]")
+        for event in resume_events:
+            checkpoint_id = event.get("checkpoint_id", "?")
+            already_processed = event.get("jobs_already_processed", 0)
+            remaining = event.get("jobs_remaining", 0)
+            console.print(
+                f"  • Resumed from checkpoint {checkpoint_id}\n"
+                f"    - {already_processed} jobs already processed\n"
+                f"    - {remaining} jobs remaining"
+            )
+        console.print()
+
+    # Show job processing
+    if job_processed:
+        console.print("[bold cyan]✅ SUCCESSFULLY PROCESSED JOBS[/bold cyan]")
+        for event in job_processed:
+            job_id = event.get("job_id", "?")
+            progress = event.get("progress", "?")
+            console.print(f"  • {job_id} ({progress})")
+        console.print()
+
+    # Show failures
+    if job_failed:
+        console.print("[bold red]❌ FAILED JOBS[/bold red]")
+        for event in job_failed:
+            job_id = event.get("job_id", "?")
+            error = event.get("error", "Unknown error")
+            category = event.get("error_category", "UNKNOWN")
+            console.print(f"  • {job_id}: {error[:60]}... [{category}]")
+        console.print()
+
+    # Show retry activity
+    retry_attempts = [a for a in attempts if a.get("attempt_number", 1) > 1]
+    if retry_attempts:
+        console.print("[bold yellow]🔁 RETRY ACTIVITY[/bold yellow]")
+        for event in retry_attempts:
+            tool = event.get("tool", "?")
+            attempt = event.get("attempt_number", "?")
+            status = event.get("status", "?")
+            console.print(f"  • {tool}: attempt {attempt} ({status})")
         console.print()
 
     # Summary
-    total_steps = max(e.get("step", 0) for e in events)
-    tool_calls = sum(1 for e in events if e["event_type"] == "tool_call")
-    errors = sum(1 for e in events if e["event_type"] in ("json_parse_error", "run_failed"))
-    guardrails = sum(1 for e in events if e["event_type"] == "guardrail_triggered")
-
-    summary_table = Table(title="Run Summary")
-    summary_table.add_column("Metric", style="cyan")
-    summary_table.add_column("Value", style="white")
-    summary_table.add_row("Total Steps", str(total_steps))
-    summary_table.add_row("Total Events", str(len(events)))
-    summary_table.add_row("Tool Calls", str(tool_calls))
-    summary_table.add_row("Guardrails Triggered", str(guardrails))
-    summary_table.add_row("Errors", str(errors))
-    summary_table.add_row("Log File", str(path))
-
-    console.print(summary_table)
+    console.print(Panel(
+        f"[bold]Summary[/bold]\n"
+        f"  Jobs processed: {len(job_processed)}\n"
+        f"  Jobs failed: {len(job_failed)}\n"
+        f"  Recovery events: {len(resume_events)}\n"
+        f"  Retry attempts: {len(retry_attempts)}",
+        title="Run Summary"
+    ))
 
 
-def main() -> None:
-    parser = argparse.ArgumentParser(description="View agent audit trails.")
-    parser.add_argument("--list", action="store_true", help="List all available runs.")
-    parser.add_argument("--file", type=str, help="Path to a specific JSONL log file to view.")
+def find_trace_for_run(run_id: str, trace_dir: str = "traces") -> Path:
+    """Find the trace file for a specific run."""
+    trace_path = Path(trace_dir)
+    if not trace_path.exists():
+        raise FileNotFoundError(f"Trace directory not found: {trace_dir}")
+
+    # Look for trace files (we don't embed run_id in trace files yet,
+    # so we'll use the most recent one or let user specify)
+    trace_files = sorted(trace_path.glob("trace_*.jsonl"))
+    if not trace_files:
+        raise FileNotFoundError(f"No trace files found in {trace_dir}")
+
+    # Return the most recent trace file
+    return trace_files[-1]
+
+
+def main():
+    parser = argparse.ArgumentParser(description="View audit trail")
+    parser.add_argument("--run-id", help="Run ID to display")
+    parser.add_argument("--trace-file", help="Specific trace file to view")
+    parser.add_argument("--narrative", action="store_true",
+                        help="Show human-readable narrative instead of raw events")
+    parser.add_argument("--trace-dir", default="traces",
+                        help="Directory containing trace files")
 
     args = parser.parse_args()
 
-    if args.file:
-        view_run(args.file)
+    if args.trace_file:
+        trace_file = Path(args.trace_file)
+    elif args.run_id:
+        try:
+            trace_file = find_trace_for_run(args.run_id, args.trace_dir)
+        except FileNotFoundError as e:
+            console.print(f"[red]{e}[/red]")
+            return
     else:
-        list_runs()
+        # Use most recent trace file
+        trace_path = Path(args.trace_dir)
+        if not trace_path.exists():
+            console.print(f"[red]Trace directory not found: {args.trace_dir}[/red]")
+            return
+        trace_files = sorted(trace_path.glob("trace_*.jsonl"))
+        if not trace_files:
+            console.print("[red]No trace files found[/red]")
+            return
+        trace_file = trace_files[-1]
+
+    if args.narrative:
+        show_narrative(trace_file, args.run_id or "unknown")
+    else:
+        show_trace(trace_file)
 
 
 if __name__ == "__main__":

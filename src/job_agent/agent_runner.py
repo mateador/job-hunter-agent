@@ -1,5 +1,5 @@
 """
-Day 12: Agent runner with robust resume capability.
+Day 13: Agent runner with partial completion tracking.
 """
 import logging
 from typing import List, Dict, Any, Optional
@@ -8,9 +8,10 @@ from .llm_client import LLMClient
 from .audit_logger import AuditLogger
 from .checkpoint import CheckpointManager, CheckpointError, CorruptedCheckpointError
 from .tools import search_freehire, search_duckduckgo
-from .models import JobCandidate
+from .models import Job, Application, FailedJob
 from .prompts import SYSTEM_PROMPT
-from .application_generator import generate_application_package
+from .application_generator import generate_application
+from .failures import classify_exception
 
 logger = logging.getLogger(__name__)
 
@@ -40,7 +41,7 @@ class AgentRunner:
         resume_from: Optional[int] = None
     ) -> Dict[str, Any]:
         """
-        Run the agent loop.
+        Run the agent loop with partial completion support.
 
         Args:
             query: Job search query
@@ -48,13 +49,12 @@ class AgentRunner:
             resume_from: If set, resume from a specific checkpoint ID
 
         Returns:
-            Dictionary containing jobs, applications, and metadata
+            Dictionary containing jobs, applications, failures, and metadata
         """
         # ── Initialize or resume state ──
         if resume or resume_from is not None:
             state = self._load_resume_state(resume_from)
             if state is not None:
-                # Validate query matches
                 saved_query = state.get("search_query", "")
                 if saved_query and saved_query != query:
                     raise ResumeError(
@@ -65,7 +65,8 @@ class AgentRunner:
 
                 jobs_found = state.get("jobs_found", [])
                 jobs_processed = set(state.get("jobs_processed", []))
-                applications = state.get("applications_generated", [])
+                applications = [Application(**app) for app in state.get("applications_generated", [])]
+                failed_jobs = [FailedJob(**fj) for fj in state.get("failed_jobs", [])]
                 messages = state.get("agent_messages", [])
 
                 self.audit_logger.log_event(
@@ -77,13 +78,14 @@ class AgentRunner:
                 )
                 logger.info(
                     f"Resumed: {len(jobs_processed)}/{len(jobs_found)} jobs "
-                    f"already processed, {len(applications)} applications generated"
+                    f"already processed, {len(applications)} applications generated, "
+                    f"{len(failed_jobs)} failures"
                 )
             else:
                 logger.info("No valid checkpoint found, starting fresh")
-                jobs_found, jobs_processed, applications, messages = self._fresh_state()
+                jobs_found, jobs_processed, applications, failed_jobs, messages = self._fresh_state()
         else:
-            jobs_found, jobs_processed, applications, messages = self._fresh_state()
+            jobs_found, jobs_processed, applications, failed_jobs, messages = self._fresh_state()
 
         # ── Step 1: Search for jobs (if not already done) ──
         if not jobs_found:
@@ -102,6 +104,7 @@ class AgentRunner:
                 jobs_found=jobs_found,
                 jobs_processed=jobs_processed,
                 applications=applications,
+                failed_jobs=failed_jobs,
                 messages=messages,
                 status="search_complete"
             )
@@ -118,17 +121,13 @@ class AgentRunner:
 
             try:
                 job = Job(**job_data)
-                app = generate_application_package(
+                app = generate_application(
                     job=job,
                     llm_client=self.llm_client,
                     audit_logger=self.audit_logger
                 )
 
-                applications.append({
-                    "job_id": job_id,
-                    "cover_letter": app.cover_letter,
-                    "cv_bullets": app.cv_bullets
-                })
+                applications.append(app)
                 jobs_processed.add(job_id)
 
                 self.audit_logger.log_event(
@@ -142,28 +141,60 @@ class AgentRunner:
                     jobs_found=jobs_found,
                     jobs_processed=jobs_processed,
                     applications=applications,
+                    failed_jobs=failed_jobs,
                     messages=messages,
                     status="in_progress"
                 )
 
             except Exception as e:
                 logger.error(f"Failed to process job {job_id}: {e}")
+                
+                # Classify the failure
+                failure_record = classify_exception(
+                    e,
+                    tool_name="application_generation",
+                    attempt_number=1
+                )
+                
+                # Track the failure
+                failed_job = FailedJob(
+                    job_id=job_id,
+                    job_title=job_data.get("title", "Unknown"),
+                    error=str(e),
+                    error_category=failure_record.category.value,
+                    attempt_number=failure_record.attempt_number
+                )
+                failed_jobs.append(failed_job)
+                
+                # Mark as processed so we don't retry
+                jobs_processed.add(job_id)
+                
                 self.audit_logger.log_event(
                     event_type="job_failed",
                     job_id=job_id,
-                    error=str(e)
+                    error=str(e),
+                    error_category=failure_record.category.value
                 )
-                # Save checkpoint even on failure so we don't retry this job
-                jobs_processed.add(job_id)
+                
+                # Save checkpoint with failure tracked
                 self._save_checkpoint(
                     query=query,
                     jobs_found=jobs_found,
                     jobs_processed=jobs_processed,
                     applications=applications,
+                    failed_jobs=failed_jobs,
                     messages=messages,
                     status="in_progress"
                 )
                 continue
+
+        # ── Determine final status ──
+        if len(applications) == len(jobs_found):
+            status = "completed"
+        elif len(applications) > 0:
+            status = "partial"
+        else:
+            status = "failed"
 
         # ── Final checkpoint ──
         self._save_checkpoint(
@@ -171,16 +202,18 @@ class AgentRunner:
             jobs_found=jobs_found,
             jobs_processed=jobs_processed,
             applications=applications,
+            failed_jobs=failed_jobs,
             messages=messages,
-            status="completed"
+            status=status
         )
 
         return {
             "query": query,
-            "jobs_found": jobs_found,
-            "jobs_processed": list(jobs_processed),
+            "jobs_found": [Job(**j) for j in jobs_found],
             "applications": applications,
-            "checkpoint_file": str(self.checkpoint_manager.get_checkpoint_path())
+            "failed_jobs": failed_jobs,
+            "checkpoint_file": str(self.checkpoint_manager.get_checkpoint_path()),
+            "status": status
         }
 
     def _load_resume_state(self, checkpoint_id: Optional[int]) -> Optional[Dict[str, Any]]:
@@ -207,14 +240,15 @@ class AgentRunner:
     @staticmethod
     def _fresh_state():
         """Return empty initial state."""
-        return [], set(), [], []
+        return [], set(), [], [], []
 
     def _save_checkpoint(
         self,
         query: str,
         jobs_found: List[Dict],
         jobs_processed: set,
-        applications: List[Dict],
+        applications: List[Application],
+        failed_jobs: List[FailedJob],
         messages: List[Dict],
         status: str
     ):
@@ -223,7 +257,8 @@ class AgentRunner:
             "search_query": query,
             "jobs_found": jobs_found,
             "jobs_processed": list(jobs_processed),
-            "applications_generated": applications,
+            "applications_generated": [app.model_dump() for app in applications],
+            "failed_jobs": [fj.model_dump() for fj in failed_jobs],
             "agent_messages": messages,
             "status": status
         }

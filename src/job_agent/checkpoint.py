@@ -18,7 +18,7 @@ REQUIRED_STATE_KEYS = {
     "status"
 }
 
-VALID_STATUSES = {"search_complete", "in_progress", "completed", "failed"}
+VALID_STATUSES = {"search_complete", "in_progress", "completed", "failed", "partial"}
 
 
 class CheckpointError(Exception):

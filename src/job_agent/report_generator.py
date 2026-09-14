@@ -1,132 +1,111 @@
+"""
+Day 13: Markdown report generator with partial completion support.
+"""
 from datetime import datetime
 from pathlib import Path
-
+from typing import Dict, Any
 from rich.console import Console
-
-from job_agent.models import AgentFinalAnswer
 
 console = Console()
 
 
-def generate_report(
-    final_answer: AgentFinalAnswer,
-    application_packages: dict[str, dict],
-    output_dir: str = "output",
-) -> str:
+def generate_report(result: Dict[str, Any]) -> str:
     """
-    Day 6: Write a consolidated Markdown report to output/.
+    Generate a Markdown report from agent results.
 
-    The report contains everything a candidate needs to apply:
-    - Match analysis
-    - CV evidence
-    - Tailored CV bullets
-    - Cover letter
-    - Company research
-    - Next steps
+    Args:
+        result: Dictionary from AgentRunner.run()
+
+    Returns:
+        Path to the generated report file
     """
+    query = result["query"]
+    jobs_found = result["jobs_found"]
+    applications = result["applications"]
+    failed_jobs = result.get("failed_jobs", [])
+    status = result.get("status", "unknown")
+    checkpoint_file = result["checkpoint_file"]
 
-    output_path = Path(output_dir)
-    output_path.mkdir(parents=True, exist_ok=True)
+    # Create reports directory
+    reports_dir = Path("reports")
+    reports_dir.mkdir(exist_ok=True)
 
+    # Generate filename
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    report_file = output_path / f"job_application_report_{timestamp}.md"
+    report_file = reports_dir / f"report_{timestamp}.md"
 
+    # Build report
     lines = []
-
-    # Header
-    lines.append("# Job Application Report")
+    lines.append(f"# Job Search Report: {query}")
     lines.append("")
     lines.append(f"**Generated:** {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-    lines.append(f"**Jobs Reviewed:** {final_answer.jobs_reviewed}")
-    lines.append(f"**Selected:** {len(final_answer.selected_jobs)}")
+    lines.append(f"**Status:** {status.upper()}")
+    lines.append(f"**Jobs Found:** {len(jobs_found)}")
+    lines.append(f"**Applications Generated:** {len(applications)}")
+    if failed_jobs:
+        lines.append(f"**Failed Jobs:** {len(failed_jobs)}")
+    lines.append(f"**Checkpoint File:** `{checkpoint_file}`")
     lines.append("")
+    lines.append("---")
+    lines.append("")
+
+    # Applications section
+    if applications:
+        lines.append("## Generated Applications")
+        lines.append("")
+        for app in applications:
+            job = next((j for j in jobs_found if j.id == app.job_id), None)
+            if job:
+                lines.append(f"### {job.title} at {job.company}")
+                lines.append("")
+                lines.append(f"**Location:** {job.location or 'Not specified'}")
+                lines.append(f"**Job ID:** {job.id}")
+                if job.url:
+                    lines.append(f"**URL:** {job.url}")
+                lines.append("")
+                lines.append("#### Cover Letter")
+                lines.append("")
+                lines.append(app.cover_letter)
+                lines.append("")
+                lines.append("#### Tailored CV Bullets")
+                lines.append("")
+                for bullet in app.cv_bullets:
+                    lines.append(f"- {bullet}")
+                lines.append("")
+                lines.append("---")
+                lines.append("")
+
+    # Failed jobs section
+    if failed_jobs:
+        lines.append("## Failed Jobs")
+        lines.append("")
+        lines.append("The following jobs could not be processed:")
+        lines.append("")
+        for fj in failed_jobs:
+            lines.append(f"### {fj.job_title}")
+            lines.append("")
+            lines.append(f"- **Job ID:** {fj.job_id}")
+            lines.append(f"- **Error Category:** {fj.error_category or 'UNKNOWN'}")
+            lines.append(f"- **Error:** {fj.error}")
+            lines.append("")
+        lines.append("---")
+        lines.append("")
 
     # Summary
     lines.append("## Summary")
     lines.append("")
-    lines.append(final_answer.summary)
+    if status == "completed":
+        lines.append("✅ All jobs processed successfully.")
+    elif status == "partial":
+        lines.append(f"⚠️  Partial completion: {len(applications)}/{len(jobs_found)} jobs processed.")
+        lines.append(f"   {len(failed_jobs)} job(s) failed. Check the Failed Jobs section above.")
+    else:
+        lines.append("❌ No jobs were successfully processed.")
     lines.append("")
 
-    # Each job
-    for i, job in enumerate(final_answer.selected_jobs, 1):
-        lines.append("---")
-        lines.append("")
-        lines.append(f"## {i}. {job.position}")
-        lines.append("")
-        lines.append(f"**Company:** {job.company}")
-        lines.append(f"**Location:** {job.location or 'Not specified'}")
-        if job.url:
-            lines.append(f"**Apply:** [{job.url}]({job.url})")
-        lines.append("")
+    # Write report
+    with open(report_file, "w") as f:
+        f.write("\n".join(lines))
 
-        # Match analysis
-        lines.append("### Why This Is a Match")
-        lines.append("")
-        lines.append(job.match_reason or "No match analysis provided.")
-        lines.append("")
-
-        # CV Evidence
-        if job.cv_evidence:
-            lines.append("### CV Evidence")
-            lines.append("")
-            for evidence in job.cv_evidence:
-                lines.append(f"- {evidence}")
-            lines.append("")
-
-        # Application package
-        pkg = application_packages.get(job.company, {})
-
-        if pkg.get("tailored_cv_bullets"):
-            lines.append("### Tailored CV Bullets")
-            lines.append("")
-            lines.append("Use these bullets to replace or augment the relevant section of your CV for this application:")
-            lines.append("")
-            for bullet in pkg["tailored_cv_bullets"]:
-                lines.append(f"- {bullet}")
-            lines.append("")
-
-        if pkg.get("cover_letter"):
-            lines.append("### Cover Letter")
-            lines.append("")
-            # Handle \n\n paragraph breaks from the LLM
-            cover_letter = pkg["cover_letter"].replace("\\n\\n", "\n\n").replace("\\n", "\n")
-            lines.append(cover_letter)
-            lines.append("")
-
-        # Company research
-        research = next(
-            (r for r in final_answer.company_research if r.company == job.company),
-            None,
-        )
-        if research:
-            lines.append("### Company Research")
-            lines.append("")
-            lines.append(research.summary)
-            lines.append("")
-            if research.sources:
-                lines.append("**Sources:**")
-                for source in research.sources:
-                    lines.append(f"- {source}")
-                lines.append("")
-
-    # Next steps
-    lines.append("---")
-    lines.append("")
-    lines.append("## Recommended Next Steps")
-    lines.append("")
-    for step in final_answer.recommended_next_steps:
-        lines.append(f"- {step}")
-    lines.append("")
-
-    # Footer
-    lines.append("---")
-    lines.append("")
-    lines.append("*Generated by Job Hunter Agent — an observable agentic workflow for job research and application drafting.*")
-
-    content = "\n".join(lines)
-
-    with open(report_file, "w", encoding="utf-8") as f:
-        f.write(content)
-
-    console.print(f"\n[green]✓ Report saved to: {report_file}[/green]")
+    console.print(f"[bold green]Report generated: {report_file}[/bold green]")
     return str(report_file)
