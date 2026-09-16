@@ -101,7 +101,7 @@ The agent produces a single consolidated Markdown report in `reports/` containin
 
 ### Installation
 
-    git clone https://github.com/YOUR_USERNAME/job-hunter-agent.git
+    git clone https://github.com/mateador/job-hunter-agent.git
     cd job-hunter-agent
 
     python -m venv .venv
