@@ -24,32 +24,32 @@ Every decision, tool call, retry, and error is captured in a structured JSONL au
 
 ## 📐 Architecture
 
-    graph TD
-        A["CLI Input<br/>Keywords"] --> B["Agent Runner<br/>(Loop Controller)"]
-        B --> C{"LLM Decision<br/>(Structured JSON)"}
-        C -->|"tool_call"| D["Tool Executor<br/>(with Retry & Timeout)"]
-        C -->|"final_answer"| E["Validated Output<br/>(Pydantic Schema)"]
-        D --> F["FreeHire Job Search API"]
-        D --> G["Web Search<br/>DuckDuckGo"]
-        F --> B
-        G --> B
-        E --> H["Application Generator<br/>(Post-Loop LLM Call)"]
-        H --> I["Report Generator"]
-        I --> J["output/report.md"]
+graph TD
+    A["CLI Input<br/>Keywords"] --> B["Agent Runner<br/>(Loop Controller)"]
+    B --> C{"LLM Decision<br/>(Structured JSON)"}
+    C -->|"tool_call"| D["Tool Executor<br/>(with Retry & Timeout)"]
+    C -->|"final_answer"| E["Validated Output<br/>(Pydantic Schema)"]
+    D --> F["FreeHire Job Search API"]
+    D --> G["Web Search<br/>DuckDuckGo"]
+    F --> B
+    G --> B
+    E --> H["Application Generator<br/>(Post-Loop LLM Call)"]
+    H --> I["Report Generator"]
+    I --> J["output/report.md"]
 
-        K["Audit Logger"] -.->|"JSONL events"| L["traces/trace_*.jsonl"]
-        M["Checkpoint Manager"] -.->|"State snapshots"| N["checkpoints/checkpoint_*.jsonl"]
-        
-        B -.-> K
-        B -.-> M
-        D -.-> K
+    K["Audit Logger"] -.->|"JSONL events"| L["traces/trace_*.jsonl"]
+    M["Checkpoint Manager"] -.->|"State snapshots"| N["checkpoints/checkpoint_*.jsonl"]
+    
+    B -.-> K
+    B -.-> M
+    D -.-> K
 
-        style A fill:#e1f5fe
-        style J fill:#c8e6c9
-        style F fill:#fff3e0
-        style G fill:#fff3e0
-        style L fill:#f3e5f5
-        style N fill:#fce4ec
+    style A fill:#e1f5fe
+    style J fill:#c8e6c9
+    style F fill:#fff3e0
+    style G fill:#fff3e0
+    style L fill:#f3e5f5
+    style N fill:#fce4ec
 
 The agent operates in a strict loop with built-in resilience:
 - **Retry & Backoff**: Transient failures (timeouts, 503s) trigger bounded exponential backoff (max 3 attempts).
