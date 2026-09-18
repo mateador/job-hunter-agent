@@ -24,6 +24,7 @@ Every decision, tool call, retry, and error is captured in a structured JSONL au
 
 ## 📐 Architecture
 
+```mermaid
 graph TD
     A["CLI Input<br/>Keywords"] --> B["Agent Runner<br/>(Loop Controller)"]
     B --> C{"LLM Decision<br/>(Structured JSON)"}
@@ -50,6 +51,7 @@ graph TD
     style G fill:#fff3e0
     style L fill:#f3e5f5
     style N fill:#fce4ec
+```
 
 The agent operates in a strict loop with built-in resilience:
 - **Retry & Backoff**: Transient failures (timeouts, 503s) trigger bounded exponential backoff (max 3 attempts).
