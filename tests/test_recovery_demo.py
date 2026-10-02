@@ -1,11 +1,11 @@
 """
-Day 14: End-to-end recovery demo test.
+Day 15: End-to-end recovery demo test.
 
 This test simulates a real-world failure scenario:
 1. Agent starts processing 5 jobs
-2. "Crash" after job 2 (simulated via exception)
-3. Resume from checkpoint
-4. Verify remaining jobs complete successfully
+2. Job 3 fails (simulated via exception)
+3. Agent continues and completes remaining jobs
+4. Verify final state with partial completion
 
 Run with: pytest tests/test_recovery_demo.py -v -s
 """
@@ -23,18 +23,13 @@ from src.job_agent.checkpoint import CheckpointManager
 from src.job_agent.models import Application
 
 
-class SimulatedCrash(Exception):
-    """Simulates a hard crash (e.g., OOM, SIGKIM, network partition)."""
-    pass
-
-
 def test_full_recovery_cycle(tmp_path, monkeypatch):
     """
-    Full kill/resume cycle test.
+    Full recovery cycle test with partial completion.
 
-    Phase 1: Agent processes jobs 1-2, then "crashes" on job 3.
-    Phase 2: Agent resumes from checkpoint, processes jobs 3-5.
-    Phase 3: Verify final state has all 5 jobs processed.
+    Phase 1: Agent processes jobs 1-2, job 3 fails, jobs 4-5 succeed.
+    Phase 2: Resume from checkpoint (should skip already-processed jobs).
+    Phase 3: Verify final state has 4 successful applications and 1 failure.
     """
     monkeypatch.setenv("OPENAI_API_KEY", "test-key")
 
@@ -42,9 +37,9 @@ def test_full_recovery_cycle(tmp_path, monkeypatch):
     checkpoint_dir = tmp_path / "checkpoints"
     run_id = "recovery_demo"
 
-    # ── PHASE 1: Initial run that "crashes" ──
+    # ── PHASE 1: Initial run with one failure ──
     print("\n" + "=" * 60)
-    print("PHASE 1: Initial run (will crash on job 3)")
+    print("PHASE 1: Initial run (job 3 will fail)")
     print("=" * 60)
 
     audit1 = AuditLogger(trace_dir=str(audit_dir))
@@ -55,14 +50,14 @@ def test_full_recovery_cycle(tmp_path, monkeypatch):
 
     call_count = 0
 
-    def mock_generate_application_phase1(job, llm_client, audit_logger):
+    def mock_generate_application_phase1(job, llm_client, audit_logger, **kwargs):
         nonlocal call_count
         call_count += 1
         print(f"  [Phase 1] Processing job {call_count}: {job.id}")
 
         if call_count == 3:
-            print(f"  [Phase 1] 💥 SIMULATED CRASH on job {job.id}")
-            raise SimulatedCrash("Simulated OOM kill")
+            print(f"  [Phase 1] ❌ Job {job.id} fails")
+            raise ValueError("Simulated job failure")
 
         return Application(
             job_id=job.id,
@@ -87,23 +82,31 @@ def test_full_recovery_cycle(tmp_path, monkeypatch):
                 max_jobs=5
             )
 
-            # Phase 1 crashes
-            with pytest.raises(SimulatedCrash, match="Simulated OOM kill"):
-                runner1.run(query="python engineer london")
+            result1 = runner1.run(query="python engineer london")
 
-    # Verify checkpoint was saved before crash
+    # Verify partial completion after phase 1
+    print(f"\n  [Phase 1] Final status: {result1['status']}")
+    print(f"  [Phase 1] Successful applications: {len(result1['applications'])}")
+    print(f"  [Phase 1] Failed jobs: {len(result1['failed_jobs'])}")
+
+    assert result1["status"] == "partial"
+    assert len(result1["applications"]) == 4, "Should have 4 successful applications"
+    assert len(result1["failed_jobs"]) == 1, "Should have 1 failed job"
+    assert result1["failed_jobs"][0].job_id == "job_3"
+
+    # Verify checkpoint was saved
     checkpoints = cp_manager1.list_checkpoints()
-    print(f"\n  [Phase 1] Checkpoints saved before crash: {len(checkpoints)}")
-    assert len(checkpoints) >= 2, "Should have at least search_complete + in_progress checkpoints"
+    print(f"\n  [Phase 1] Checkpoints saved: {len(checkpoints)}")
+    assert len(checkpoints) >= 2, "Should have at least search_complete + completion checkpoints"
 
     last_state = cp_manager1.load_latest_checkpoint()
     print(f"  [Phase 1] Last checkpoint status: {last_state['status']}")
-    print(f"  [Phase 1] Jobs processed before crash: {len(last_state['jobs_processed'])}")
-    assert len(last_state["jobs_processed"]) == 2, "Should have processed 2 jobs before crash"
+    print(f"  [Phase 1] Jobs processed: {len(last_state['jobs_processed'])}")
+    assert len(last_state["jobs_processed"]) == 5, "All 5 jobs should be marked as processed"
 
     # ── PHASE 2: Resume from checkpoint ──
     print("\n" + "=" * 60)
-    print("PHASE 2: Resume from checkpoint")
+    print("PHASE 2: Resume from checkpoint (should skip all jobs)")
     print("=" * 60)
 
     audit2 = AuditLogger(trace_dir=str(audit_dir))
@@ -112,13 +115,9 @@ def test_full_recovery_cycle(tmp_path, monkeypatch):
         run_id=run_id  # Same run_id = same checkpoint file
     )
 
-    def mock_generate_application_phase2(job, llm_client, audit_logger):
-        print(f"  [Phase 2] Processing job: {job.id}")
-        return Application(
-            job_id=job.id,
-            cover_letter=f"Cover letter for {job.title}",
-            cv_bullets=[f"Tailored bullet for {job.title}"]
-        )
+    def mock_generate_application_phase2(job, llm_client, audit_logger, **kwargs):
+        # This should never be called since all jobs are already processed
+        raise AssertionError(f"Should not process job {job.id} - already in checkpoint")
 
     with patch("src.job_agent.agent_runner.generate_application",
                side_effect=mock_generate_application_phase2):
@@ -132,36 +131,38 @@ def test_full_recovery_cycle(tmp_path, monkeypatch):
                 max_jobs=5
             )
 
-            result = runner2.run(
+            result2 = runner2.run(
                 query="python engineer london",
                 resume=True
             )
 
     # ── PHASE 3: Verify final state ──
     print("\n" + "=" * 60)
-    print("PHASE 3: Verify final state")
+    print("PHASE 3: Verify final state after resume")
     print("=" * 60)
 
-    print(f"  [Phase 3] Final status: {result['status']}")
-    print(f"  [Phase 3] Total applications: {len(result['applications'])}")
-    print(f"  [Phase 3] Failed jobs: {len(result['failed_jobs'])}")
+    print(f"  [Phase 3] Final status: {result2['status']}")
+    print(f"  [Phase 3] Total applications: {len(result2['applications'])}")
+    print(f"  [Phase 3] Failed jobs: {len(result2['failed_jobs'])}")
 
-    assert result["status"] == "completed"
-    assert len(result["applications"]) == 5, "All 5 jobs should be processed"
-    assert len(result["failed_jobs"]) == 0
+    # Resume should preserve the partial state
+    assert result2["status"] == "partial"
+    assert len(result2["applications"]) == 4, "Should still have 4 successful applications"
+    assert len(result2["failed_jobs"]) == 1, "Should still have 1 failed job"
+    assert result2["failed_jobs"][0].job_id == "job_3"
 
-    # Verify checkpoint reflects completion
+    # Verify checkpoint reflects the same state
     final_state = cp_manager2.load_latest_checkpoint()
-    assert final_state["status"] == "completed"
+    assert final_state["status"] == "partial"
     assert len(final_state["jobs_processed"]) == 5
 
     print("\n" + "=" * 60)
     print("✅ RECOVERY DEMO PASSED")
     print("=" * 60)
-    print(f"  - Agent crashed after 2 jobs")
-    print(f"  - Resumed from checkpoint")
-    print(f"  - Completed remaining 3 jobs")
-    print(f"  - Final state: 5/5 jobs processed")
+    print(f"  - Job 3 failed during initial run")
+    print(f"  - Agent continued and completed jobs 4-5")
+    print(f"  - Final state: 4/5 jobs successful, 1 failed")
+    print(f"  - Resume preserved the partial state")
     print(f"  - Checkpoint file: {cp_manager2.get_checkpoint_path()}")
     print(f"  - Audit trail: {audit_dir}")
     print("=" * 60 + "\n")
@@ -187,7 +188,7 @@ def test_recovery_preserves_partial_failures(tmp_path, monkeypatch):
 
     call_count = 0
 
-    def mock_phase1(job, llm_client, audit_logger):
+    def mock_phase1(job, llm_client, audit_logger, **kwargs):
         nonlocal call_count
         call_count += 1
         if call_count == 2:
@@ -229,7 +230,7 @@ def test_recovery_preserves_partial_failures(tmp_path, monkeypatch):
         run_id=run_id
     )
 
-    def mock_phase2(job, llm_client, audit_logger):
+    def mock_phase2(job, llm_client, audit_logger, **kwargs):
         # Should not be called for j2 (already failed)
         assert job.id != "j2", f"Should not retry failed job {job.id}"
         return Application(

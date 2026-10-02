@@ -1,5 +1,5 @@
 """
-Day 13: Agent runner with partial completion tracking.
+Day 15: Agent runner with CV text support for tailored applications.
 """
 import logging
 from typing import List, Dict, Any, Optional
@@ -27,12 +27,14 @@ class AgentRunner:
         audit_logger: AuditLogger,
         checkpoint_manager: CheckpointManager,
         model: str = "gpt-4o-mini",
-        max_jobs: int = 10
+        max_jobs: int = 10,
+        cv_text: Optional[str] = None,
     ):
         self.audit_logger = audit_logger
         self.checkpoint_manager = checkpoint_manager
         self.llm_client = LLMClient(audit_logger=audit_logger, model=model)
         self.max_jobs = max_jobs
+        self.cv_text = cv_text
 
     def run(
         self,
@@ -124,7 +126,8 @@ class AgentRunner:
                 app = generate_application(
                     job=job,
                     llm_client=self.llm_client,
-                    audit_logger=self.audit_logger
+                    audit_logger=self.audit_logger,
+                    cv_text=self.cv_text,
                 )
 
                 applications.append(app)
@@ -148,15 +151,13 @@ class AgentRunner:
 
             except Exception as e:
                 logger.error(f"Failed to process job {job_id}: {e}")
-                
-                # Classify the failure
+
                 failure_record = classify_exception(
                     e,
                     tool_name="application_generation",
                     attempt_number=1
                 )
-                
-                # Track the failure
+
                 failed_job = FailedJob(
                     job_id=job_id,
                     job_title=job_data.get("title", "Unknown"),
@@ -165,18 +166,16 @@ class AgentRunner:
                     attempt_number=failure_record.attempt_number
                 )
                 failed_jobs.append(failed_job)
-                
-                # Mark as processed so we don't retry
+
                 jobs_processed.add(job_id)
-                
+
                 self.audit_logger.log_event(
                     event_type="job_failed",
                     job_id=job_id,
                     error=str(e),
                     error_category=failure_record.category.value
                 )
-                
-                # Save checkpoint with failure tracked
+
                 self._save_checkpoint(
                     query=query,
                     jobs_found=jobs_found,
@@ -260,6 +259,7 @@ class AgentRunner:
             "applications_generated": [app.model_dump() for app in applications],
             "failed_jobs": [fj.model_dump() for fj in failed_jobs],
             "agent_messages": messages,
-            "status": status
+            "status": status,
+            "has_cv_text": self.cv_text is not None,
         }
         self.checkpoint_manager.save_checkpoint(state)

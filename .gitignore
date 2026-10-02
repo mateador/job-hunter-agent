@@ -1,33 +1,44 @@
-# Python
+# ── Python Artifacts ──
 __pycache__/
 *.py[cod]
 *.pyo
 *.pyd
 .Python
+*.egg-info/
+build/
+dist/
+
+# ── Virtual Environments ──
 .venv/
 venv/
 env/
-dist/
-build/
-*.egg-info/
 
-# Environment variables
+# ── Environment Variables & Secrets ──
 .env
+.env.*
 
-# Local/private data
-output/
-logs/
+# ── Local/Private Data & Runtime Outputs ──
 private/
 my_cv.md
 real_cv.md
 personal_cv.md
+output/
+logs/
+checkpoints/
+traces/
+reports/
 
-# IDE/editor
+# ── IDE, Editor & AI Assistant Cache ──
 .vscode/
 .idea/
 .DS_Store
+.claude/
 
-# Test/cache
+# ── Test & Linter Cache ──
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
+
+# ── Temporary Debug Files ──
+test_openai.py
+*.log

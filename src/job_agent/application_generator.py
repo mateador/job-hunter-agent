@@ -1,6 +1,6 @@
 """
-Day 13: Application generator with audit trail integration.
-Bridges Week 1 logic with Day 9-13 architecture.
+Day 15: Application generator with CV text support.
+Uses raw CV text when available, falls back to candidate profile otherwise.
 """
 import json
 from typing import Optional
@@ -27,32 +27,48 @@ def _strip_code_fences(text: str) -> str:
     return text.strip()
 
 
+def _build_candidate_section(cv_text: Optional[str], candidate_profile: Optional[JobCandidate]) -> str:
+    """Build the candidate section of the prompt from either CV text or profile."""
+    if cv_text:
+        return f"CANDIDATE CV (verbatim):\n{cv_text}"
+
+    if candidate_profile is None:
+        candidate_profile = JobCandidate()
+
+    return (
+        f"CANDIDATE PROFILE:\n"
+        f"Name: {candidate_profile.name}\n"
+        f"Experience: {candidate_profile.years_experience} years\n"
+        f"Current Role: {candidate_profile.current_role}\n"
+        f"Key Skills: {', '.join(candidate_profile.skills)}\n"
+        f"Background: {candidate_profile.background}"
+    )
+
+
 def generate_application(
     job: Job,
     llm_client: LLMClient,
     audit_logger: AuditLogger,
+    cv_text: Optional[str] = None,
     company_research: Optional[CompanyResearch] = None,
     candidate_profile: Optional[JobCandidate] = None,
 ) -> Application:
     """
-    Day 13: Generate a tailored cover letter and CV bullets for one specific job.
-    
-    This integrates with the audit trail and uses the injected LLMClient.
-    
+    Generate a tailored cover letter and CV bullets for one specific job.
+
     Args:
         job: Job listing from FreeHire
         llm_client: LLM client with audit integration
         audit_logger: Audit logger for tracking
+        cv_text: Optional raw CV text (takes priority over candidate_profile)
         company_research: Optional company research data
-        candidate_profile: Optional candidate profile (uses defaults if not provided)
-    
+        candidate_profile: Optional candidate profile (used if cv_text not provided)
+
     Returns:
         Application object with cover_letter and cv_bullets
     """
-    # Use default candidate profile if not provided
-    if candidate_profile is None:
-        candidate_profile = JobCandidate()
-    
+    candidate_section = _build_candidate_section(cv_text, candidate_profile)
+
     # Build research context
     research_context = "No company research available."
     if company_research:
@@ -61,7 +77,6 @@ def generate_application(
             if hasattr(company_research, 'sources') and company_research.sources:
                 research_context += f"\nSources: {', '.join(company_research.sources[:3])}"
         else:
-            # Fallback for older CompanyResearch model
             research_parts = []
             if company_research.industry:
                 research_parts.append(f"Industry: {company_research.industry}")
@@ -70,21 +85,12 @@ def generate_application(
             if company_research.culture:
                 research_parts.append(f"Culture: {company_research.culture}")
             research_context = "\n".join(research_parts) if research_parts else "Limited company information available."
-    
-    # Build candidate evidence
-    evidence_text = "\n".join(f"- {e}" for e in candidate_profile.skills[:5])
-    
-    # Build prompt
+
     prompt = f"""You are a professional career coach and technical writer.
 
 Generate a tailored job application package for the following role.
 
-CANDIDATE PROFILE:
-Name: {candidate_profile.name}
-Experience: {candidate_profile.years_experience} years
-Current Role: {candidate_profile.current_role}
-Key Skills: {', '.join(candidate_profile.skills)}
-Background: {candidate_profile.background}
+{candidate_section}
 
 TARGET JOB:
 Company: {job.company}
@@ -98,7 +104,7 @@ COMPANY RESEARCH:
 TASK:
 Generate two things:
 
-1. TAILORED CV BULLETS: Create 3-4 bullet points that highlight the candidate's most relevant experience for this specific role. Use strong action verbs and quantify results where possible. Focus on skills that match the job requirements.
+1. TAILORED CV BULLETS: Create 3-4 bullet points that highlight the candidate's most relevant experience for this specific role. Use strong action verbs and quantify results where possible. Focus on skills that match the job requirements. If a real CV was provided, draw directly from it — do NOT invent experience.
 
 2. COVER LETTER: Write a concise, professional cover letter (3-4 paragraphs) that:
 - Opens with genuine enthusiasm for the specific role and company
@@ -108,7 +114,7 @@ Generate two things:
 
 IMPORTANT RULES:
 - If the company appears to be a recruitment agency (e.g., Ocho, Corriculo, Hays, Michael Page), address the letter to the recruitment consultant and reference the end-client role described in the job posting.
-- Do NOT invent skills, companies, or experience not present in the candidate profile.
+- Do NOT invent skills, companies, or experience not present in the candidate's CV or profile.
 - Keep the tone professional but authentic, not generic or overly formal.
 - The candidate is based in Cambridge, UK, and holds a Skilled Worker Visa Dependant (no sponsorship required).
 
@@ -119,14 +125,13 @@ Respond with valid JSON only, no Markdown, no code fences:
 }}"""
 
     try:
-        # Log the generation attempt
         audit_logger.log_event(
             event_type="application_generation_start",
             job_id=job.id,
-            company=job.company
+            company=job.company,
+            has_cv_text=cv_text is not None
         )
-        
-        # Call LLM with audit integration
+
         response = llm_client.chat([
             {"role": "system", "content": "You are a professional career coach. Respond with valid JSON only."},
             {"role": "user", "content": prompt},
@@ -135,23 +140,21 @@ Respond with valid JSON only, no Markdown, no code fences:
         text = _strip_code_fences(response)
         result = json.loads(text)
 
-        # Validate and extract fields
         cv_bullets = result.get("tailored_cv_bullets", [])
         cover_letter = result.get("cover_letter", text)
-        
+
         if not cv_bullets:
             cv_bullets = []
         if not cover_letter:
             cover_letter = "Cover letter generation failed."
 
-        # Log success
         audit_logger.log_event(
             event_type="application_generation_success",
             job_id=job.id,
             company=job.company,
             bullets_count=len(cv_bullets)
         )
-        
+
         return Application(
             job_id=job.id,
             cover_letter=cover_letter,
@@ -180,4 +183,4 @@ Respond with valid JSON only, no Markdown, no code fences:
             error=str(exc)
         )
         console.print(f"[red]✗ Application generation failed for {job.company}: {exc}[/red]")
-        raise  # Re-raise so agent_runner can catch and track it
+        raise

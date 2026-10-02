@@ -1,5 +1,8 @@
+"""
+Day 15: Tools with correct FreeHire API endpoint.
+"""
 import logging
-from duckduckgo_search import DDGS
+from ddgs import DDGS
 import requests
 from .audit_logger import AuditLogger
 from .retry import execute_with_retry
@@ -7,8 +10,8 @@ from .config import FREEHIRE_TIMEOUT, DUCKDUCKGO_TIMEOUT
 
 logger = logging.getLogger(__name__)
 
-# Placeholder base URL for FreeHire
-FREEHIRE_BASE_URL = "https://api.freehire.com/agent/jobs/search"
+# Correct FreeHire public API endpoint
+FREEHIRE_BASE_URL = "https://freehire.me/api/v1/jobs"
 
 def search_freehire(
     query: str, 
@@ -24,14 +27,19 @@ def search_freehire(
             "posted_within_days": 30,
             "regions": "uk"
         }
-        # Day 10: Use centralized timeout config
+        # Remove any None values just in case
+        params = {k: v for k, v in params.items() if v is not None}
+        
         response = requests.get(
             FREEHIRE_BASE_URL, 
             params=params, 
             timeout=FREEHIRE_TIMEOUT
         )
         response.raise_for_status()
-        return response.json().get("jobs", [])
+        
+        # The FreeHire API returns results inside a "data" key
+        data = response.json()
+        return data.get("data", [])
 
     def _modify_freehire_kwargs(kwargs_dict, attempt):
         # Reduce limit on retry to prevent timeouts/payload issues

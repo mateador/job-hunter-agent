@@ -41,14 +41,14 @@ def classify_exception(
     """
     msg = str(exception)
     
-    # Day 10: Explicit timeout handling
-    if isinstance(exception, (TimeoutError, requests.Timeout, openai.APITimeoutError)):
+    # Day 15: Explicit timeout and connection drop handling
+    if isinstance(exception, (TimeoutError, requests.Timeout, openai.APITimeoutError, openai.APIConnectionError)):
         return FailureRecord(
             category=FailureCategory.TIMEOUT,
             retry_policy=RetryPolicy.RETRY_SAME,
             tool_name=tool_name,
             attempt_number=attempt_number,
-            message=f"Timeout: {msg}"
+            message=f"Connection/Timeout error: {msg}"
         )
     
     # HTTP errors
