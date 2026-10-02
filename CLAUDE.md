@@ -29,8 +29,10 @@ python3 -m src.job_agent.main "query" --cv private/cv.md --verbose
 python3 -m src.job_agent.main --list-interrupted
 python3 -m src.job_agent.main "query" --resume --run-id <RUN_ID>
 python3 -m src.job_agent.view_trace --narrative
-pytest tests/ -v          # 44 tests, all passing
+python -m pytest tests -q   # 50 tests, all passing
 ```
+
+Run tests with `python -m pytest`, not bare `pytest`: a user-level pytest in `~/.local` can shadow the venv's and fail with `No module named 'ddgs'`.
 
 ## Architecture
 `main.py` (CLI) -> `AgentRunner` (loop controller, checkpoint manager, failure tracking) -> `LLMClient` (OpenAI, retry, timeout) + `tools.py` (FreeHire, DuckDuckGo) -> `ApplicationGenerator` (cover letters, CV bullets) -> `ReportGenerator` (Markdown).
@@ -45,7 +47,8 @@ Timeouts: LLM 60s, FreeHire 15s, DDG 10s.
 ## Progress
 - Week 1 (Days 1-7): agent loop, FreeHire, DDG research, 12 output guardrails, tiktoken context pruning, tailored CV bullets/cover letters, JSONL audit trail + Markdown report.
 - Week 2 (Days 8-14): failure taxonomy, retry/backoff, timeouts, checkpointing, validated resume, partial completion, recovery demo.
-- Day 15: golden dataset (20 queries), restored `--cv`/`--keywords` flags, fixed OpenAI/httpx2 `process()` kwarg error.
+- Day 15: golden dataset (`evals/golden_dataset.json`, 20 queries with per-query `cv_path`, `relevance_keywords`, `expected_tools`, validated by `evals/dataset_schema.py`), restored `--cv`/`--keywords` flags, fixed OpenAI/httpx2 `process()` kwarg error.
+- Day 16 plan: eval runner mocked by default with a `--live` flag, plus a basic keyword-based relevance check on job matches. `min_jobs`/`relevance_keywords` values are untuned guesses; adjust after the first live run.
 
 ## Roadmap
 - Week 3 (measure): 16 eval harness (`evals/runner.py`, `scoring.py`, `report.py`), 17 correctness/format evals, 18 tool selection and escalation, 19 cost tracking and model routing, 20 failure-mode frequencies, 21 final eval report.

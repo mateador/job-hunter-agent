@@ -1,0 +1,360 @@
+{
+  "version": "1.0",
+  "queries": [
+    {
+      "id": "std-01",
+      "query": "Forward Deployed Engineer",
+      "category": "standard",
+      "description": "Target role of the project",
+      "expected_tools": [
+        "freehire",
+        "duckduckgo"
+      ],
+      "min_jobs": 1,
+      "relevance_keywords": [
+        "forward deployed",
+        "deployed engineer",
+        "solutions"
+      ],
+      "expect_agency_flag": false,
+      "expect_failure": false,
+      "cv_path": "private/alexandre_cv.md"
+    },
+    {
+      "id": "std-02",
+      "query": "python engineer london",
+      "category": "standard",
+      "description": "Language plus location",
+      "expected_tools": [
+        "freehire",
+        "duckduckgo"
+      ],
+      "min_jobs": 1,
+      "relevance_keywords": [
+        "python",
+        "engineer"
+      ],
+      "expect_agency_flag": false,
+      "expect_failure": false,
+      "cv_path": "private/alexandre_cv.md"
+    },
+    {
+      "id": "std-03",
+      "query": "backend engineer",
+      "category": "standard",
+      "description": "Common role title",
+      "expected_tools": [
+        "freehire",
+        "duckduckgo"
+      ],
+      "min_jobs": 1,
+      "relevance_keywords": [
+        "backend",
+        "back-end",
+        "back end"
+      ],
+      "expect_agency_flag": false,
+      "expect_failure": false,
+      "cv_path": "private/alexandre_cv.md"
+    },
+    {
+      "id": "std-04",
+      "query": "solutions engineer",
+      "category": "standard",
+      "description": "Adjacent customer-facing role",
+      "expected_tools": [
+        "freehire",
+        "duckduckgo"
+      ],
+      "min_jobs": 1,
+      "relevance_keywords": [
+        "solutions",
+        "engineer"
+      ],
+      "expect_agency_flag": false,
+      "expect_failure": false,
+      "cv_path": "private/alexandre_cv.md"
+    },
+    {
+      "id": "std-05",
+      "query": "AI engineer",
+      "category": "standard",
+      "description": "Popular AI role",
+      "expected_tools": [
+        "freehire",
+        "duckduckgo"
+      ],
+      "min_jobs": 1,
+      "relevance_keywords": [
+        "ai",
+        "machine learning",
+        "llm"
+      ],
+      "expect_agency_flag": false,
+      "expect_failure": false,
+      "cv_path": null
+    },
+    {
+      "id": "std-06",
+      "query": "data engineer",
+      "category": "standard",
+      "description": "Common data role",
+      "expected_tools": [
+        "freehire",
+        "duckduckgo"
+      ],
+      "min_jobs": 1,
+      "relevance_keywords": [
+        "data",
+        "engineer"
+      ],
+      "expect_agency_flag": false,
+      "expect_failure": false,
+      "cv_path": null
+    },
+    {
+      "id": "niche-01",
+      "query": "LLM evaluation engineer",
+      "category": "niche",
+      "description": "Narrow specialty, few results expected",
+      "expected_tools": [
+        "freehire",
+        "duckduckgo"
+      ],
+      "min_jobs": 0,
+      "relevance_keywords": [
+        "llm",
+        "evaluation",
+        "eval",
+        "ai"
+      ],
+      "expect_agency_flag": false,
+      "expect_failure": false,
+      "cv_path": "private/alexandre_cv.md"
+    },
+    {
+      "id": "niche-02",
+      "query": "agent infrastructure engineer",
+      "category": "niche",
+      "description": "Emerging title",
+      "expected_tools": [
+        "freehire",
+        "duckduckgo"
+      ],
+      "min_jobs": 0,
+      "relevance_keywords": [
+        "agent",
+        "infrastructure",
+        "platform"
+      ],
+      "expect_agency_flag": false,
+      "expect_failure": false,
+      "cv_path": "private/alexandre_cv.md"
+    },
+    {
+      "id": "niche-03",
+      "query": "applied AI engineer healthcare",
+      "category": "niche",
+      "description": "Domain-specific role",
+      "expected_tools": [
+        "freehire",
+        "duckduckgo"
+      ],
+      "min_jobs": 0,
+      "relevance_keywords": [
+        "ai",
+        "healthcare",
+        "health"
+      ],
+      "expect_agency_flag": false,
+      "expect_failure": false,
+      "cv_path": "private/alexandre_cv.md"
+    },
+    {
+      "id": "niche-04",
+      "query": "customer engineer observability",
+      "category": "niche",
+      "description": "Vendor-side technical role",
+      "expected_tools": [
+        "freehire",
+        "duckduckgo"
+      ],
+      "min_jobs": 0,
+      "relevance_keywords": [
+        "customer engineer",
+        "observability",
+        "monitoring"
+      ],
+      "expect_agency_flag": false,
+      "expect_failure": false,
+      "cv_path": null
+    },
+    {
+      "id": "broad-01",
+      "query": "software engineer",
+      "category": "broad",
+      "description": "Very generic, many results",
+      "expected_tools": [
+        "freehire",
+        "duckduckgo"
+      ],
+      "min_jobs": 1,
+      "relevance_keywords": [
+        "software",
+        "engineer"
+      ],
+      "expect_agency_flag": false,
+      "expect_failure": false,
+      "cv_path": "private/alexandre_cv.md"
+    },
+    {
+      "id": "broad-02",
+      "query": "engineer remote",
+      "category": "broad",
+      "description": "Vague title with location constraint",
+      "expected_tools": [
+        "freehire",
+        "duckduckgo"
+      ],
+      "min_jobs": 1,
+      "relevance_keywords": [
+        "engineer",
+        "remote"
+      ],
+      "expect_agency_flag": false,
+      "expect_failure": false,
+      "cv_path": "private/alexandre_cv.md"
+    },
+    {
+      "id": "broad-03",
+      "query": "developer",
+      "category": "broad",
+      "description": "Single generic word",
+      "expected_tools": [
+        "freehire",
+        "duckduckgo"
+      ],
+      "min_jobs": 1,
+      "relevance_keywords": [
+        "developer",
+        "engineer"
+      ],
+      "expect_agency_flag": false,
+      "expect_failure": false,
+      "cv_path": null
+    },
+    {
+      "id": "edge-01",
+      "query": "qzxv wplk jhgf",
+      "category": "edge_case",
+      "description": "Gibberish; should return no jobs without crashing",
+      "expected_tools": [
+        "freehire"
+      ],
+      "min_jobs": 0,
+      "relevance_keywords": [],
+      "expect_agency_flag": false,
+      "expect_failure": false,
+      "cv_path": null
+    },
+    {
+      "id": "edge-02",
+      "query": " ",
+      "category": "edge_case",
+      "description": "Blank query; should be rejected or handled gracefully",
+      "expected_tools": [],
+      "min_jobs": 0,
+      "relevance_keywords": [],
+      "expect_agency_flag": false,
+      "expect_failure": true,
+      "cv_path": null
+    },
+    {
+      "id": "edge-03",
+      "query": "senior software engineer distributed systems distributed systems distributed systems distributed systems distributed systems distributed systems distributed systems distributed systems distributed systems distributed systems distributed systems distributed systems distributed systems distributed systems distributed systems distributed systems distributed systems distributed systems distributed systems distributed systems ",
+      "category": "edge_case",
+      "description": "Very long query",
+      "expected_tools": [
+        "freehire"
+      ],
+      "min_jobs": 0,
+      "relevance_keywords": [],
+      "expect_agency_flag": false,
+      "expect_failure": false,
+      "cv_path": null
+    },
+    {
+      "id": "edge-04",
+      "query": "engenheiro de software Lisboa",
+      "category": "edge_case",
+      "description": "Non-English query",
+      "expected_tools": [
+        "freehire",
+        "duckduckgo"
+      ],
+      "min_jobs": 0,
+      "relevance_keywords": [
+        "engenheiro",
+        "software",
+        "engineer"
+      ],
+      "expect_agency_flag": false,
+      "expect_failure": false,
+      "cv_path": null
+    },
+    {
+      "id": "agency-01",
+      "query": "recruitment consultant python",
+      "category": "agency",
+      "description": "Agency-style postings expected",
+      "expected_tools": [
+        "freehire",
+        "duckduckgo"
+      ],
+      "min_jobs": 1,
+      "relevance_keywords": [
+        "recruit",
+        "consultant"
+      ],
+      "expect_agency_flag": true,
+      "expect_failure": false,
+      "cv_path": "private/alexandre_cv.md"
+    },
+    {
+      "id": "agency-02",
+      "query": "contract python developer",
+      "category": "agency",
+      "description": "Contract roles often posted by agencies",
+      "expected_tools": [
+        "freehire",
+        "duckduckgo"
+      ],
+      "min_jobs": 1,
+      "relevance_keywords": [
+        "python",
+        "contract"
+      ],
+      "expect_agency_flag": true,
+      "expect_failure": false,
+      "cv_path": "private/alexandre_cv.md"
+    },
+    {
+      "id": "agency-03",
+      "query": "software engineer via staffing agency",
+      "category": "agency",
+      "description": "Explicit agency wording",
+      "expected_tools": [
+        "freehire",
+        "duckduckgo"
+      ],
+      "min_jobs": 1,
+      "relevance_keywords": [
+        "software",
+        "engineer"
+      ],
+      "expect_agency_flag": true,
+      "expect_failure": false,
+      "cv_path": null
+    }
+  ]
+}
