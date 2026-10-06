@@ -13,11 +13,14 @@ from .result_models import QueryScore
 def summarize(scores: List[QueryScore]) -> Dict[str, Any]:
     by_cat: Dict[str, List[bool]] = defaultdict(list)
     by_check: Dict[str, List[bool]] = defaultdict(list)
+    scores_by_check: Dict[str, List[float]] = defaultdict(list)
     for s in scores:
         by_cat[s.result.category].append(s.passed)
         for c in s.checks:
             if not c.skipped and not c.informational:
                 by_check[c.name].append(c.passed)
+                if c.score is not None:
+                    scores_by_check[c.name].append(c.score)
     rate = lambda xs: (sum(xs) / len(xs)) if xs else None
     latencies = [s.result.latency_s for s in scores]
     return {
@@ -25,7 +28,8 @@ def summarize(scores: List[QueryScore]) -> Dict[str, Any]:
         "passed": sum(s.passed for s in scores),
         "pass_rate": rate([s.passed for s in scores]),
         "by_category": {k: {"n": len(v), "pass_rate": rate(v)} for k, v in sorted(by_cat.items())},
-        "by_check": {k: {"n": len(v), "pass_rate": rate(v)} for k, v in sorted(by_check.items())},
+        "by_check": {k: {"n": len(v), "pass_rate": rate(v), "mean_score": rate(scores_by_check.get(k, []))}
+                     for k, v in sorted(by_check.items())},
         "latency_mean_s": (sum(latencies) / len(latencies)) if latencies else None,
         "latency_max_s": max(latencies) if latencies else None,
     }
@@ -46,8 +50,10 @@ def render_markdown(scores: List[QueryScore], mode: str, timestamp: str) -> str:
         lines += ["> Mock mode: canned jobs and LLM output. This validates the harness, not the agent.", ""]
     lines += ["## By category", "", "| Category | Queries | Pass rate |", "|---|---|---|"]
     lines += [f"| {k} | {v['n']} | {_pct(v['pass_rate'])} |" for k, v in s["by_category"].items()]
-    lines += ["", "## By check", "", "| Check | Evaluated | Pass rate |", "|---|---|---|"]
-    lines += [f"| {k} | {v['n']} | {_pct(v['pass_rate'])} |" for k, v in s["by_check"].items()]
+    lines += ["", "## By check", "",
+              "| Check | Evaluated | Pass rate | Mean score |", "|---|---|---|---|"]
+    lines += [f"| {k} | {v['n']} | {_pct(v['pass_rate'])} | {_pct(v['mean_score'])} |" for k, v in s["by_check"].items()]
+    lines += ["", "_Mean score = share of applications (or jobs, for relevance) passing the check._"]
     lat = s["latency_mean_s"]
     lines += ["", f"Latency: mean {lat:.2f}s, max {s['latency_max_s']:.2f}s" if lat is not None else "", ""]
     lines += ["## Per query", "", "| ID | Query | Result | Jobs | Latency | Failed checks |", "|---|---|---|---|---|---|"]

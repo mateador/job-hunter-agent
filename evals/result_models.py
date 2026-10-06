@@ -19,6 +19,7 @@ class RunResult(BaseModel):
     applications: List[Dict[str, Any]] = Field(default_factory=list)
     failed_jobs: List[Dict[str, Any]] = Field(default_factory=list)
     tools_called: List[str] = Field(default_factory=list)
+    cv_numbers: List[str] = Field(default_factory=list)  # numbers found in the CV, for grounding
     ignored_params: List[str] = Field(default_factory=list)  # params FreeHire reported ignoring
     notes: List[str] = Field(default_factory=list)
 

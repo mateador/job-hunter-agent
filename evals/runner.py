@@ -10,6 +10,7 @@ import argparse
 import contextlib
 import json
 import os
+import re
 import sys
 import time
 from pathlib import Path
@@ -25,15 +26,29 @@ from src.job_agent.checkpoint import CheckpointManager
 from .dataset_schema import GoldenQuery, load_dataset
 from .report import write_reports
 from .result_models import QueryScore, RunResult
-from .scoring import score_result
+from .scoring import extract_numbers, score_result
 
 FIXTURES = Path(__file__).parent / "fixtures"
 DEFAULT_OUT = Path(__file__).parent / "results"
 MOCK_CV = "Mock CV: Python engineer with LLM, API and AWS experience."
-MOCK_LLM_RESPONSE = json.dumps({
-    "tailored_cv_bullets": ["Built LLM agents in Python", "Deployed APIs on AWS", "Led customer integrations"],
-    "cover_letter": "Dear Hiring Manager,\n\nI am excited about this role.\n\nBest regards",
-})
+_FILLER = ("I have spent years building reliable software, working closely with customers, and turning "
+           "ambiguous requirements into dependable systems that teams can trust and extend over time. ") * 3
+
+
+def mock_llm_response(prompt: str) -> str:
+    """A well-formed application that echoes the company and position found in the prompt."""
+    company = re.search(r"Company: (.*)", prompt)
+    position = re.search(r"Position: (.*)", prompt)
+    company, position = (company.group(1) if company else "the company"), (position.group(1) if position else "the role")
+    letter = (f"Dear Hiring Team at {company},\n\n"
+              f"I am excited to apply for the {position} position at {company}. {_FILLER}\n\n"
+              f"My recent work combined Python, APIs and cloud services. {_FILLER}\n\n"
+              f"I would welcome the chance to discuss how I can contribute to {company}.\n\n"
+              "Best regards,\nCandidate")
+    return json.dumps({
+        "tailored_cv_bullets": ["Built LLM agents in Python", "Deployed APIs on AWS", "Led customer integrations"],
+        "cover_letter": letter,
+    })
 
 
 def _tokens(text: str) -> set:
@@ -59,7 +74,7 @@ def _mock_environment(audit_logger: AuditLogger) -> Iterator[None]:
     def fake_chat(self, messages, **kwargs):
         self.audit_logger.log_attempt("llm_chat", 1, "start")
         self.audit_logger.log_attempt("llm_chat", 1, "success")
-        return MOCK_LLM_RESPONSE
+        return mock_llm_response(messages[-1]["content"])
 
     with patch.dict(os.environ, {"OPENAI_API_KEY": os.environ.get("OPENAI_API_KEY", "mock-key")}), \
          patch("src.job_agent.agent_runner.search_freehire", make_mock_search(audit_logger)), \
@@ -112,7 +127,8 @@ def run_query(query: GoldenQuery, live: bool, max_jobs: int, model: str, out_dir
     checkpoint_manager = CheckpointManager(checkpoint_dir=str(run_dir / "checkpoints"), run_id=query.id)
     cv_text = _load_cv(query, live, notes)
 
-    result = RunResult(query_id=query.id, query=query.query, category=query.category, mode=mode, notes=notes)
+    result = RunResult(query_id=query.id, query=query.query, category=query.category, mode=mode, notes=notes,
+                       cv_numbers=sorted(extract_numbers(cv_text)))
     ctx = contextlib.nullcontext() if live else _mock_environment(audit_logger)
     start = time.perf_counter()
     try:
@@ -121,7 +137,9 @@ def run_query(query: GoldenQuery, live: bool, max_jobs: int, model: str, out_dir
                                 model=model, max_jobs=max_jobs, cv_text=cv_text)
             output = agent.run(query.query)
         result.status = output["status"]
-        result.jobs = [{**j.model_dump(), "description": (j.description or "")[:500]} for j in output["jobs_found"]]
+        result.jobs = [{**j.model_dump(), "description": (j.description or "")[:500],
+                        "description_numbers": sorted(extract_numbers(j.description))}
+                       for j in output["jobs_found"]]
         result.applications = [a.model_dump() for a in output["applications"]]
         result.failed_jobs = [f.model_dump() for f in output["failed_jobs"]]
     except Exception as e:  # a crash is a result, not a harness failure
