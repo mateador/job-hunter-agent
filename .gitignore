@@ -42,3 +42,5 @@ reports/
 # ── Temporary Debug Files ──
 test_openai.py
 *.log
+# ── Eval run outputs ──
+evals/results/

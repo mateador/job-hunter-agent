@@ -1,0 +1,41 @@
+"""Shared result types for the eval harness."""
+from __future__ import annotations
+
+from typing import Any, Dict, List, Optional
+
+from pydantic import BaseModel, Field
+
+
+class RunResult(BaseModel):
+    """Raw outcome of running the agent on one golden query."""
+    query_id: str
+    query: str
+    category: str
+    mode: str  # "mock" or "live"
+    status: Optional[str] = None  # AgentRunner status; None if the run raised
+    error: Optional[str] = None
+    latency_s: float = 0.0
+    jobs: List[Dict[str, Any]] = Field(default_factory=list)
+    applications: List[Dict[str, Any]] = Field(default_factory=list)
+    failed_jobs: List[Dict[str, Any]] = Field(default_factory=list)
+    tools_called: List[str] = Field(default_factory=list)
+    ignored_params: List[str] = Field(default_factory=list)  # params FreeHire reported ignoring
+    notes: List[str] = Field(default_factory=list)
+
+
+class CheckResult(BaseModel):
+    name: str
+    passed: bool
+    detail: str = ""
+    skipped: bool = False
+    informational: bool = False  # recorded in the report but never fails a query
+    score: Optional[float] = None
+
+
+class QueryScore(BaseModel):
+    result: RunResult
+    checks: List[CheckResult]
+
+    @property
+    def passed(self) -> bool:
+        return all(c.passed for c in self.checks if not c.skipped and not c.informational)
