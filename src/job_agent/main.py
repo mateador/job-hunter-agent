@@ -15,7 +15,7 @@ from rich.console import Console
 from rich.table import Table
 from rich.logging import RichHandler
 
-from .agent_runner import AgentRunner, ResumeError
+from .agent_runner import AgentRunner, InvalidQueryError, ResumeError
 from .audit_logger import AuditLogger
 from .checkpoint import CheckpointManager
 from .report_generator import generate_report
@@ -168,6 +168,8 @@ Examples:
             parser.error("Cannot specify both a positional query and --keywords. Use one or the other.")
         if not args.query and not args.keywords:
             parser.error("Either a positional query or --keywords is required (unless using --resume or --list-interrupted)")
+        if args.query is not None and not args.query.strip():
+            parser.error("The search query is empty or whitespace-only.")
 
     # ── Load CV if provided ──
     cv_text = None
@@ -266,6 +268,10 @@ Examples:
 
         except ResumeError as e:
             console.print(f"[bold red]Resume error: {e}[/bold red]")
+            sys.exit(1)
+
+        except InvalidQueryError as e:
+            console.print(f"[bold red]Invalid query: {e}[/bold red]")
             sys.exit(1)
 
         except KeyboardInterrupt:

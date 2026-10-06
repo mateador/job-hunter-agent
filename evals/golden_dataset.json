@@ -183,7 +183,10 @@
       "relevance_keywords": [
         "customer engineer",
         "observability",
-        "monitoring"
+        "monitoring",
+        "sre",
+        "reliability",
+        "devops"
       ],
       "expect_agency_flag": false,
       "expect_failure": false,

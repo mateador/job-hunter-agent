@@ -21,6 +21,10 @@ class ResumeError(Exception):
     pass
 
 
+class InvalidQueryError(ValueError):
+    """Raised when the search query is empty or whitespace-only."""
+
+
 class AgentRunner:
     def __init__(
         self,
@@ -91,6 +95,10 @@ class AgentRunner:
 
         # ── Step 1: Search for jobs (if not already done) ──
         if not jobs_found:
+            if not query or not query.strip():
+                raise InvalidQueryError(
+                    "Search query is empty. An empty query returns an unfiltered job feed."
+                )
             logger.info("Searching for jobs...")
             jobs_found = search_freehire(
                 query=query,
