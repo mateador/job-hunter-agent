@@ -22,10 +22,12 @@ from dotenv import load_dotenv
 from src.job_agent.agent_runner import AgentRunner
 from src.job_agent.audit_logger import AuditLogger
 from src.job_agent.checkpoint import CheckpointManager
+from src.job_agent.models import CompanyResearch
 
 from .dataset_schema import GoldenQuery, load_dataset
 from .report import write_reports
 from .result_models import QueryScore, RunResult
+from .scenarios import run_scenarios
 from .scoring import extract_numbers, score_result
 
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -55,13 +57,17 @@ def _tokens(text: str) -> set:
     return {t for t in text.lower().split() if len(t) >= 3}
 
 
-def make_mock_search(audit_logger: AuditLogger) -> Callable:
-    jobs = json.loads((FIXTURES / "mock_jobs.json").read_text(encoding="utf-8"))
+def make_mock_search(audit_logger: AuditLogger, jobs: Optional[List[dict]] = None) -> Callable:
+    """Offline FreeHire stand-in. With explicit `jobs` it returns them as-is (scenario mode)."""
+    explicit = jobs is not None
+    jobs = jobs if explicit else json.loads((FIXTURES / "mock_jobs.json").read_text(encoding="utf-8"))
 
     def mock_search(query: str, limit: int = 10, audit_logger=audit_logger, **kwargs) -> list:
         audit_logger.log_attempt("search_freehire", 1, "start")
         audit_logger.log_event(event_type="search_meta", total=None, ignored_params=[])
         audit_logger.log_attempt("search_freehire", 1, "success")
+        if explicit:
+            return [dict(j) for j in jobs[:limit]]
         q = _tokens(query)
         hits = [j for j in jobs if q & _tokens(f"{j['title']} {j['description']}")]
         return [dict(j) for j in hits[:limit]]
@@ -69,15 +75,33 @@ def make_mock_search(audit_logger: AuditLogger) -> Callable:
     return mock_search
 
 
+def make_mock_research(audit_logger: AuditLogger, mode: str = "ok") -> Callable:
+    """Offline DuckDuckGo stand-in. mode: ok | empty (no useful results) | fail (raises)."""
+    def mock_research(company, audit_logger=audit_logger, **kwargs):
+        audit_logger.log_attempt("search_duckduckgo", 1, "start")
+        if mode == "fail":
+            audit_logger.log_attempt("search_duckduckgo", 1, "failure")
+            raise ConnectionError("mock DuckDuckGo outage")
+        audit_logger.log_attempt("search_duckduckgo", 1, "success")
+        if mode == "empty":
+            return None
+        return CompanyResearch(company_name=company, summary=f"{company} builds software products.",
+                               sources=[f"https://example.test/{str(company).lower().replace(' ', '-')}"])
+
+    return mock_research
+
+
 @contextlib.contextmanager
-def _mock_environment(audit_logger: AuditLogger) -> Iterator[None]:
+def _mock_environment(audit_logger: AuditLogger, jobs: Optional[List[dict]] = None,
+                      research_mode: str = "ok") -> Iterator[None]:
     def fake_chat(self, messages, **kwargs):
         self.audit_logger.log_attempt("llm_chat", 1, "start")
         self.audit_logger.log_attempt("llm_chat", 1, "success")
         return mock_llm_response(messages[-1]["content"])
 
     with patch.dict(os.environ, {"OPENAI_API_KEY": os.environ.get("OPENAI_API_KEY", "mock-key")}), \
-         patch("src.job_agent.agent_runner.search_freehire", make_mock_search(audit_logger)), \
+         patch("src.job_agent.agent_runner.search_freehire", make_mock_search(audit_logger, jobs)), \
+         patch("src.job_agent.agent_runner.research_company", make_mock_research(audit_logger, research_mode)), \
          patch("src.job_agent.llm_client.LLMClient.chat", fake_chat):
         yield
 
@@ -97,6 +121,10 @@ def _tools_from_trace(events: List[dict]) -> List[str]:
     """One entry per tool invocation: count 'start' events only, not their outcomes."""
     return [e["tool"] for e in events
             if e.get("event_type") == "attempt" and e.get("status") == "start" and e.get("tool")]
+
+
+def _count_events(events: List[dict], event_type: str) -> int:
+    return sum(1 for e in events if e.get("event_type") == event_type)
 
 
 def _ignored_params_from_trace(events: List[dict]) -> List[str]:
@@ -142,12 +170,15 @@ def run_query(query: GoldenQuery, live: bool, max_jobs: int, model: str, out_dir
                        for j in output["jobs_found"]]
         result.applications = [a.model_dump() for a in output["applications"]]
         result.failed_jobs = [f.model_dump() for f in output["failed_jobs"]]
+        result.research = [{**d, "numbers": sorted(extract_numbers(d.get("summary")))}
+                           for d in output["research_decisions"]]
     except Exception as e:  # a crash is a result, not a harness failure
         result.error = f"{type(e).__name__}: {e}"
     result.latency_s = time.perf_counter() - start
     events = _read_trace(audit_logger.trace_file)
     result.tools_called = _tools_from_trace(events)
     result.ignored_params = _ignored_params_from_trace(events)
+    result.grounding_retries = _count_events(events, "grounding_retry")
     return result
 
 
@@ -165,11 +196,24 @@ def main(argv: Optional[List[str]] = None) -> int:
     p.add_argument("--yes", action="store_true", help="Skip the live-mode confirmation prompt")
     p.add_argument("--limit", type=int, help="Only run the first N selected queries")
     p.add_argument("--ids", help="Comma-separated query ids to run")
+    p.add_argument("--scenarios-only", action="store_true",
+                   help="Run only the offline tool-selection scenarios (free, no network)")
+    p.add_argument("--skip-scenarios", action="store_true", help="Do not run the tool-selection scenarios")
     p.add_argument("--max-jobs", type=int, default=3, help="Jobs to process per query")
     p.add_argument("--model", default="gpt-4o-mini")
     p.add_argument("--out", type=Path, default=DEFAULT_OUT, help="Output directory")
     args = p.parse_args(argv)
     load_dotenv(Path(__file__).parent.parent / ".env")
+
+    scenario_results = [] if args.skip_scenarios else run_scenarios(args.out)
+    if scenario_results:
+        ok = sum(r.passed for r in scenario_results)
+        print(f"Tool-selection scenarios: {ok}/{len(scenario_results)} passed")
+        for r in scenario_results:
+            if not r.passed:
+                print(f"  FAIL {r.id}: {'; '.join(r.problems)}")
+    if args.scenarios_only:
+        return 0 if all(r.passed for r in scenario_results) else 1
 
     queries = load_dataset().queries
     if args.ids:
@@ -189,7 +233,7 @@ def main(argv: Optional[List[str]] = None) -> int:
             return 1
 
     scores = run_dataset(queries, args.live, args.max_jobs, args.model, args.out)
-    json_path, md_path = write_reports(scores, "live" if args.live else "mock", args.out)
+    json_path, md_path = write_reports(scores, "live" if args.live else "mock", args.out, scenario_results)
     passed = sum(s.passed for s in scores)
     print(f"\n{passed}/{len(scores)} queries passed\nReport: {md_path}\nData:   {json_path}")
     return 0

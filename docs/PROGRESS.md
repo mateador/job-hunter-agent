@@ -2,7 +2,9 @@
 
 **Project Duration:** 14 of 30 days  
 **Status:** Production-ready foundation complete  
-**Last Updated:** 2026-09-14
+**Last Updated:** 2026-09-14 (corrected 2026-10-06)
+
+> **Correction note (Day 18).** This is a Day 14 snapshot. When reviewing it on Day 18 I found it described features that the code no longer had: the LLM-driven tool loop, the 12 guardrails, tiktoken context pruning, and company research were all removed or disconnected when `agent_runner.py` was rewritten for checkpointing in Day 11. The statements below have been corrected to match the code. For the current state, see `README.md`.
 
 ---
 
@@ -20,15 +22,15 @@ We've built a resilient, observable AI agent for job hunting that can survive cr
 
 | Day | Feature | Files |
 |-----|---------|-------|
-| 1 | Agent loop with tool execution | agent_runner.py, main.py |
+| 1 | Agent loop with tool execution (superseded in Day 11: replaced by a fixed pipeline) | agent_runner.py, main.py |
 | 2 | FreeHire API integration | tools.py |
-| 3 | DuckDuckGo research tool | tools.py |
-| 4 | 12 guardrails for LLM output | agent_runner.py |
-| 5 | Context pruning to prevent overflow | agent_runner.py |
+| 3 | DuckDuckGo research tool (written in tools.py but not called by the runner until Day 18) | tools.py |
+| 4 | 12 guardrails for LLM output (removed in Day 11; only `regions=uk` and `posted_within_days=30` remain, in the search call) | tools.py |
+| 5 | Context pruning to prevent overflow (removed in Day 11; no token counting remains) | — |
 | 6 | Tailored CV bullets + cover letters | application_generator.py |
 | 7 | JSONL audit trail + Markdown report | audit_logger.py, report_generator.py |
 
-**Outcome:** Working agent that searches for jobs, researches companies, and generates application materials.
+**Outcome:** Pipeline that searches for jobs and generates application materials. (Company research was reconnected on Day 18.)
 
 ### Week 2: Production Hardening (Days 8–14)
 
@@ -74,7 +76,7 @@ We've built a resilient, observable AI agent for job hunting that can survive cr
 
 **Why 3 attempts:**
 1. Most transient errors (timeouts, 503s) resolve within 1-2 retries
-2. 3 attempts with exponential backoff (1s, 2s, 4s) = ~7 seconds max wait
+2. 3 attempts with exponential backoff (waits of 1s, then 2s between attempts) = ~3 seconds max wait
 3. After 3 failures, it's likely a persistent issue (auth, malformed request) that won't resolve itself
 4. Keeps the agent responsive — you don't want to wait 5 minutes for a job that will never succeed
 
@@ -115,10 +117,9 @@ We've built a resilient, observable AI agent for job hunting that can survive cr
 ### Working Features
 
 - Agent searches FreeHire API for jobs
-- Agent researches companies via DuckDuckGo
+- Company research via DuckDuckGo (reconnected on Day 18, not part of the Day 14 snapshot): only when the posting is thin (under 600 characters); agencies, missing companies and already-researched companies are skipped, and a research failure never fails the job
 - Agent generates tailored cover letters and CV bullets
-- 12 guardrails prevent LLM hallucination
-- Context pruning prevents overflow
+- Search guardrails: `regions=uk` and `posted_within_days=30` (the other Day 3-5 guardrails and context pruning no longer exist)
 - JSONL audit trail tracks every decision
 - Markdown report consolidates results
 - Failure taxonomy classifies 8 error categories
@@ -175,7 +176,8 @@ We've built a resilient, observable AI agent for job hunting that can survive cr
 
 Install dependencies:
 
-    pip install openai duckduckgo-search pydantic rich tiktoken requests pytest
+    pip install -e .
+    pip install pytest
 
 Set API key:
 
@@ -199,7 +201,7 @@ Resume from checkpoint:
 
 ### Run Tests
 
-    pytest tests/ -v
+    python -m pytest tests -q
 
 ### Run Recovery Demo
 
@@ -209,7 +211,7 @@ Programmatic demo (no manual intervention):
 
 Manual demo (interactive):
 
-    bash scripts/demo_recovery.sh
+    bash tests/scripts/demo_recovery.sh
 
 ---
 
@@ -218,7 +220,7 @@ Manual demo (interactive):
 - **Lines of code:** ~2,500 (excluding tests)
 - **Test count:** 31
 - **Files:** 14 Python modules, 5 test files, 2 docs
-- **External dependencies:** 6 (openai, duckduckgo-search, pydantic, rich, tiktoken, requests)
+- **External dependencies:** openai, ddgs, pydantic, rich, requests, python-dotenv (tiktoken is declared but unused)
 - **Days elapsed:** 14 of 30
 - **Days remaining:** 16
 

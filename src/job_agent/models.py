@@ -17,6 +17,8 @@ class CompanyResearch(BaseModel):
     recent_news: Optional[str] = None
     key_products: Optional[str] = None
     values: Optional[str] = None
+    summary: Optional[str] = None  # condensed web search snippets
+    sources: List[str] = Field(default_factory=list)
 
 
 class JobCandidate(BaseModel):
@@ -73,6 +75,7 @@ class Application(BaseModel):
     job_id: str
     cover_letter: str
     cv_bullets: List[str]
+    warnings: List[str] = Field(default_factory=list)  # e.g. figures that could not be grounded
 
 
 # ── Day 13 Models ──

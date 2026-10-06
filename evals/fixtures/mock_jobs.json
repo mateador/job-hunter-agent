@@ -1,11 +1,30 @@
 [
-  {"id": "mock-1", "title": "Forward Deployed Engineer", "company": "Acme AI", "location": "London, UK",
-   "description": "Solutions-focused software engineer to deploy LLM agents at customers. Python, APIs, customer-facing."},
-  {"id": "mock-2", "title": "Backend Software Engineer (Python)", "company": "Northwind", "location": "Cambridge, UK",
-   "description": "Build backend services in Python and AWS. Data engineer collaboration, remote friendly developer culture."},
-  {"id": "mock-3", "title": "Warehouse Operative", "company": "ShipFast", "location": "Leeds, UK",
-   "description": "Pick and pack orders in a busy warehouse. No experience needed."},
-  {"id": "mock-4", "title": "Recruitment Consultant - Python Developer (Contract)", "company": "Hays",
-   "location": "London, UK",
-   "description": "Our client, a fintech, seeks a contract Python developer. Recruitment consultant will manage your application."}
+  {
+    "id": "mock-1",
+    "title": "Forward Deployed Engineer",
+    "company": "Acme AI",
+    "location": "London, UK",
+    "description": "Solutions-focused software engineer to deploy LLM agents at customers. Python, APIs, customer-facing. You will own customer deployments end to end, working with engineers and product to ship reliable agent integrations. You will own customer deployments end to end, working with engineers and product to ship reliable agent integrations. You will own customer deployments end to end, working with engineers and product to ship reliable agent integrations. You will own customer deployments end to end, working with engineers and product to ship reliable agent integrations. You will own customer deployments end to end, working with engineers and product to ship reliable agent integrations. You will own customer deployments end to end, working with engineers and product to ship reliable agent integrations. "
+  },
+  {
+    "id": "mock-2",
+    "title": "Backend Software Engineer (Python)",
+    "company": "Northwind",
+    "location": "Cambridge, UK",
+    "description": "Build backend services in Python and AWS. Data engineer collaboration, remote friendly developer culture."
+  },
+  {
+    "id": "mock-3",
+    "title": "Warehouse Operative",
+    "company": "ShipFast",
+    "location": "Leeds, UK",
+    "description": "Pick and pack orders in a busy warehouse. No experience needed."
+  },
+  {
+    "id": "mock-4",
+    "title": "Recruitment Consultant - Python Developer (Contract)",
+    "company": "Hays",
+    "location": "London, UK",
+    "description": "Our client, a fintech, seeks a contract Python developer. Recruitment consultant will manage your application."
+  }
 ]

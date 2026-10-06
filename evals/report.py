@@ -5,9 +5,9 @@ import json
 from collections import defaultdict
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
-from .result_models import QueryScore
+from .result_models import QueryScore, ScenarioResult
 
 
 def summarize(scores: List[QueryScore]) -> Dict[str, Any]:
@@ -23,7 +23,23 @@ def summarize(scores: List[QueryScore]) -> Dict[str, Any]:
                     scores_by_check[c.name].append(c.score)
     rate = lambda xs: (sum(xs) / len(xs)) if xs else None
     latencies = [s.result.latency_s for s in scores]
+    decisions = [d for s in scores for d in s.result.research]
+    apps = [a for s in scores for a in s.result.applications]
+    reasons: Dict[str, int] = defaultdict(int)
+    for d in decisions:
+        reasons[d["reason"]] += 1
     return {
+        "grounding_guard": {
+            "applications": len(apps),
+            "retries": sum(s.result.grounding_retries for s in scores),
+            "flagged": sum(1 for a in apps if a.get("warnings")),
+        },
+        "escalation": {
+            "jobs": len(decisions),
+            "researched": sum(1 for d in decisions if d["decision"]),
+            "failures": sum(1 for d in decisions if d.get("error")),
+            "by_reason": dict(sorted(reasons.items())),
+        },
         "total": len(scores),
         "passed": sum(s.passed for s in scores),
         "pass_rate": rate([s.passed for s in scores]),
@@ -39,7 +55,8 @@ def _pct(x) -> str:
     return "n/a" if x is None else f"{x:.0%}"
 
 
-def render_markdown(scores: List[QueryScore], mode: str, timestamp: str) -> str:
+def render_markdown(scores: List[QueryScore], mode: str, timestamp: str,
+                    scenarios: Optional[List[ScenarioResult]] = None) -> str:
     s = summarize(scores)
     lines = [
         f"# Eval Report ({mode} mode)", "",
@@ -54,6 +71,15 @@ def render_markdown(scores: List[QueryScore], mode: str, timestamp: str) -> str:
               "| Check | Evaluated | Pass rate | Mean score |", "|---|---|---|---|"]
     lines += [f"| {k} | {v['n']} | {_pct(v['pass_rate'])} | {_pct(v['mean_score'])} |" for k, v in s["by_check"].items()]
     lines += ["", "_Mean score = share of applications (or jobs, for relevance) passing the check._"]
+    esc = s["escalation"]
+    if esc["jobs"]:
+        reasons = ", ".join(f"{k}: {v}" for k, v in esc["by_reason"].items())
+        lines += ["", f"**Escalation:** {esc['researched']}/{esc['jobs']} jobs researched via DuckDuckGo "
+                      f"({esc['failures']} failed). Decisions: {reasons}."]
+    gg = s["grounding_guard"]
+    if gg["applications"]:
+        lines += ["", f"**Grounding guard:** {gg['retries']} of {gg['applications']} applications regenerated, "
+                      f"{gg['flagged']} still flagged for review after the retry."]
     lat = s["latency_mean_s"]
     lines += ["", f"Latency: mean {lat:.2f}s, max {s['latency_max_s']:.2f}s" if lat is not None else "", ""]
     lines += ["## Per query", "", "| ID | Query | Result | Jobs | Latency | Failed checks |", "|---|---|---|---|---|---|"]
@@ -69,6 +95,13 @@ def render_markdown(scores: List[QueryScore], mode: str, timestamp: str) -> str:
             lines.append(f"### {sc.result.query_id}")
             lines += [f"- **{c.name}**: {c.detail}" for c in sc.checks if not c.passed and not c.skipped and not c.informational]
             lines.append("")
+    if scenarios:
+        ok = sum(r.passed for r in scenarios)
+        lines += ["## Tool-selection scenarios", "", f"{ok}/{len(scenarios)} passed (hand-labelled, offline).", "",
+                  "| Scenario | Result | Notes |", "|---|---|---|"]
+        lines += [f"| {r.id} | {'PASS' if r.passed else 'FAIL'} | {'; '.join(r.problems) or r.description} |"
+                  for r in scenarios]
+        lines.append("")
     infos = [(sc.result.query_id, c) for sc in scores for c in sc.checks if c.informational and not c.passed]
     if infos:
         lines += ["## Informational (not scored)", ""]
@@ -76,13 +109,15 @@ def render_markdown(scores: List[QueryScore], mode: str, timestamp: str) -> str:
     return "\n".join(lines) + "\n"
 
 
-def write_reports(scores: List[QueryScore], mode: str, out_dir: Path) -> Tuple[Path, Path]:
+def write_reports(scores: List[QueryScore], mode: str, out_dir: Path,
+                  scenarios: Optional[List[ScenarioResult]] = None) -> Tuple[Path, Path]:
     out_dir.mkdir(parents=True, exist_ok=True)
     now = datetime.now()
     stamp = now.strftime("%Y%m%d_%H%M%S")
     json_path, md_path = out_dir / f"eval_{mode}_{stamp}.json", out_dir / f"eval_{mode}_{stamp}.md"
     payload = {"mode": mode, "generated": now.isoformat(), "summary": summarize(scores),
+               "scenarios": [r.model_dump() for r in scenarios or []],
                "queries": [s.model_dump() | {"passed": s.passed} for s in scores]}
     json_path.write_text(json.dumps(payload, indent=2, default=str), encoding="utf-8")
-    md_path.write_text(render_markdown(scores, mode, now.strftime("%Y-%m-%d %H:%M:%S")), encoding="utf-8")
+    md_path.write_text(render_markdown(scores, mode, now.strftime("%Y-%m-%d %H:%M:%S"), scenarios), encoding="utf-8")
     return json_path, md_path

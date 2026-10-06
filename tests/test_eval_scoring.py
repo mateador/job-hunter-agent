@@ -1,7 +1,8 @@
 from evals.dataset_schema import GoldenQuery
 from evals.result_models import QueryScore, RunResult
-from evals.scoring import (check_addressing, check_format, check_grounding, check_min_jobs,
-                           check_relevance, check_search_honored, check_status, check_tool_sequence,
+from evals.scoring import (check_addressing, check_escalation_graceful, check_format, check_grounding,
+                           check_min_jobs, check_no_redundant_research, check_relevance,
+                           check_search_honored, check_status, check_tool_selection, check_tool_sequence,
                            check_tools, extract_numbers, score_result)
 
 
@@ -160,12 +161,66 @@ def test_grounding_allows_cv_and_posting_numbers():
 
 # ── tools ──
 
-def test_tools_requires_freehire_but_not_duckduckgo():
-    q = make_query(expected_tools=["freehire", "duckduckgo"])
-    res = check_tools(make_result(tools_called=["search_freehire"]), q)
-    assert res.passed and "known gap" in res.detail
+def test_tools_requires_every_expected_tool():
+    q = make_query(expected_tools=["freehire"])
+    assert check_tools(make_result(tools_called=["search_freehire", "llm_chat"]), q).passed
     assert not check_tools(make_result(tools_called=["llm_chat"]), q).passed
     assert check_tools(make_result(), make_query(expected_tools=[])).passed
+    both = make_query(expected_tools=["freehire", "duckduckgo"])
+    assert not check_tools(make_result(tools_called=["search_freehire"]), both).passed
+
+
+def decision(job_id="j1", company="Acme", decision=True, reason="thin_description", error=None, numbers=()):
+    return {"job_id": job_id, "company": company, "decision": decision, "reason": reason,
+            "error": error, "numbers": list(numbers)}
+
+
+def test_tool_selection():
+    q = make_query()
+    ok = make_result(research=[decision()], tools_called=["search_duckduckgo"])
+    assert check_tool_selection(ok, q).passed
+    retried = make_result(research=[decision()], tools_called=["search_duckduckgo", "search_duckduckgo"])
+    assert check_tool_selection(retried, q).passed  # retries add calls, never remove them
+    missing = make_result(research=[decision()], tools_called=[])
+    assert not check_tool_selection(missing, q).passed
+    rogue = make_result(research=[decision(decision=False, reason="rich_description")],
+                        tools_called=["search_duckduckgo"])
+    assert not check_tool_selection(rogue, q).passed
+    quiet = make_result(research=[decision(decision=False, reason="agency")], tools_called=[])
+    assert check_tool_selection(quiet, q).passed
+    assert check_tool_selection(make_result(), q).skipped
+    assert check_tool_selection(make_result(error="boom"), q).skipped
+
+
+def test_escalation_graceful():
+    q = make_query()
+    assert check_escalation_graceful(make_result(research=[decision()]), q).skipped
+    failed = decision(error="TIMEOUT: x")
+    kept = make_result(research=[failed], applications=[GOOD_APP])
+    assert check_escalation_graceful(kept, q).passed
+    lost = make_result(research=[decision(job_id="gone", error="TIMEOUT: x")], applications=[GOOD_APP])
+    res = check_escalation_graceful(lost, q)
+    assert not res.passed and "gone" in res.detail
+
+
+def test_no_redundant_research():
+    q = make_query()
+    assert check_no_redundant_research(make_result(), q).skipped
+    distinct = make_result(research=[decision(company="Acme"), decision(job_id="j2", company="Globex")])
+    assert check_no_redundant_research(distinct, q).passed
+    cached = make_result(research=[decision(company="Acme"),
+                                   decision(job_id="j2", company="Acme", decision=False, reason="already_researched")])
+    assert check_no_redundant_research(cached, q).passed
+    dupes = make_result(research=[decision(company="Acme"), decision(job_id="j2", company=" ACME ")])
+    assert not check_no_redundant_research(dupes, q).passed
+
+
+def test_grounding_counts_numbers_from_research():
+    text = app(cover_letter=LETTER + " Your company was founded in 2015.")
+    base = dict(jobs=[JOB_PY], applications=[text], cv_numbers=["30"])
+    assert not check_grounding(make_result(**base), make_query()).passed
+    grounded = make_result(**base, research=[decision(numbers=["2015"])])
+    assert check_grounding(grounded, make_query()).passed
 
 
 def test_tool_sequence():
@@ -193,5 +248,23 @@ def test_score_result_runs_all_checks():
     s = score_result(make_result(jobs=[JOB_PY], applications=[GOOD_APP],
                                  tools_called=["search_freehire", "llm_chat"]), make_query())
     assert {c.name for c in s.checks} == {"status", "min_jobs", "format", "addressing", "grounding",
-                                          "relevance", "search_honored", "tools", "tool_sequence"}
+                                          "relevance", "search_honored", "tools", "tool_selection",
+                                          "tool_sequence", "escalation_graceful", "no_redundant_research"}
     assert s.passed
+
+
+def test_tool_sequence_accounts_for_grounding_retries():
+    calls = ["search_freehire", "llm_chat", "llm_chat"]
+    with_retry = make_result(jobs=[JOB_PY], applications=[GOOD_APP], tools_called=calls, grounding_retries=1)
+    assert "retries?" not in check_tool_sequence(with_retry, make_query()).detail
+    without = make_result(jobs=[JOB_PY], applications=[GOOD_APP], tools_called=calls)
+    assert "retries?" in check_tool_sequence(without, make_query()).detail
+
+
+def test_summary_reports_grounding_guard():
+    from evals.report import render_markdown, summarize
+    flagged = {**GOOD_APP, "warnings": ["Figures not found: 40"]}
+    sc = score_result(make_result(jobs=[JOB_PY], applications=[GOOD_APP, flagged], grounding_retries=2,
+                                  tools_called=["search_freehire", "llm_chat"]), make_query())
+    assert summarize([sc])["grounding_guard"] == {"applications": 2, "retries": 2, "flagged": 1}
+    assert "Grounding guard:** 2 of 2 applications regenerated, 1 still flagged" in render_markdown([sc], "mock", "now")

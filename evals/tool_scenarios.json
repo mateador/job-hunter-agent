@@ -1,0 +1,227 @@
+{
+  "version": "1.0",
+  "scenarios": [
+    {
+      "id": "rich-description",
+      "description": "Long posting: FreeHire alone is enough",
+      "jobs": [
+        {
+          "id": "a",
+          "title": "Software Engineer",
+          "company": "Acme",
+          "description_chars": 2000,
+          "expected_research": false,
+          "expected_reason": "rich_description"
+        }
+      ]
+    },
+    {
+      "id": "thin-description",
+      "description": "Short posting: escalate to research",
+      "jobs": [
+        {
+          "id": "a",
+          "title": "Software Engineer",
+          "company": "Acme",
+          "description_chars": 200,
+          "expected_research": true,
+          "expected_reason": "thin_description"
+        }
+      ]
+    },
+    {
+      "id": "boundary-599",
+      "description": "One char under the threshold escalates",
+      "jobs": [
+        {
+          "id": "a",
+          "title": "Software Engineer",
+          "company": "Acme",
+          "description_chars": 599,
+          "expected_research": true,
+          "expected_reason": "thin_description"
+        }
+      ]
+    },
+    {
+      "id": "boundary-600",
+      "description": "Exactly at the threshold does not escalate",
+      "jobs": [
+        {
+          "id": "a",
+          "title": "Software Engineer",
+          "company": "Acme",
+          "description_chars": 600,
+          "expected_research": false,
+          "expected_reason": "rich_description"
+        }
+      ]
+    },
+    {
+      "id": "missing-description",
+      "description": "No description at all counts as thin",
+      "jobs": [
+        {
+          "id": "a",
+          "title": "Software Engineer",
+          "company": "Acme",
+          "description_chars": null,
+          "expected_research": true,
+          "expected_reason": "thin_description"
+        }
+      ]
+    },
+    {
+      "id": "missing-company",
+      "description": "No company name: nothing to research",
+      "jobs": [
+        {
+          "id": "a",
+          "title": "Software Engineer",
+          "company": null,
+          "description_chars": 100,
+          "expected_research": false,
+          "expected_reason": "no_company"
+        }
+      ]
+    },
+    {
+      "id": "blank-company",
+      "description": "Whitespace company name: nothing to research",
+      "jobs": [
+        {
+          "id": "a",
+          "title": "Software Engineer",
+          "company": "   ",
+          "description_chars": 100,
+          "expected_research": false,
+          "expected_reason": "no_company"
+        }
+      ]
+    },
+    {
+      "id": "named-agency",
+      "description": "Known agency with a thin posting: research is useless",
+      "jobs": [
+        {
+          "id": "a",
+          "title": "Software Engineer",
+          "company": "Hays",
+          "description_chars": 100,
+          "expected_research": false,
+          "expected_reason": "agency"
+        }
+      ]
+    },
+    {
+      "id": "generic-agency",
+      "description": "Agency recognised by name pattern",
+      "jobs": [
+        {
+          "id": "a",
+          "title": "Software Engineer",
+          "company": "Northwind Recruitment Ltd",
+          "description_chars": 100,
+          "expected_research": false,
+          "expected_reason": "agency"
+        }
+      ]
+    },
+    {
+      "id": "duplicate-company",
+      "description": "Same company twice: research once, reuse",
+      "jobs": [
+        {
+          "id": "a",
+          "title": "Software Engineer",
+          "company": "Acme",
+          "description_chars": 100,
+          "expected_research": true,
+          "expected_reason": "thin_description"
+        },
+        {
+          "id": "b",
+          "title": "Software Engineer",
+          "company": "Acme",
+          "description_chars": 100,
+          "expected_research": false,
+          "expected_reason": "already_researched"
+        }
+      ]
+    },
+    {
+      "id": "duplicate-company-case",
+      "description": "Company match ignores case and spacing",
+      "jobs": [
+        {
+          "id": "a",
+          "title": "Software Engineer",
+          "company": "Acme Corp",
+          "description_chars": 100,
+          "expected_research": true,
+          "expected_reason": "thin_description"
+        },
+        {
+          "id": "b",
+          "title": "Software Engineer",
+          "company": "  ACME   corp ",
+          "description_chars": 100,
+          "expected_research": false,
+          "expected_reason": "already_researched"
+        }
+      ]
+    },
+    {
+      "id": "different-companies",
+      "description": "Different thin companies are each researched",
+      "jobs": [
+        {
+          "id": "a",
+          "title": "Software Engineer",
+          "company": "Acme",
+          "description_chars": 100,
+          "expected_research": true,
+          "expected_reason": "thin_description"
+        },
+        {
+          "id": "b",
+          "title": "Software Engineer",
+          "company": "Globex",
+          "description_chars": 100,
+          "expected_research": true,
+          "expected_reason": "thin_description"
+        }
+      ]
+    },
+    {
+      "id": "research-fails",
+      "description": "DuckDuckGo error: job still completes without research",
+      "ddg_mode": "fail",
+      "jobs": [
+        {
+          "id": "a",
+          "title": "Software Engineer",
+          "company": "Acme",
+          "description_chars": 100,
+          "expected_research": true,
+          "expected_reason": "thin_description"
+        }
+      ]
+    },
+    {
+      "id": "research-empty",
+      "description": "DuckDuckGo returns nothing useful: job still completes",
+      "ddg_mode": "empty",
+      "jobs": [
+        {
+          "id": "a",
+          "title": "Software Engineer",
+          "company": "Acme",
+          "description_chars": 100,
+          "expected_research": true,
+          "expected_reason": "thin_description"
+        }
+      ]
+    }
+  ]
+}

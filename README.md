@@ -2,20 +2,20 @@
 
 [![Python](https://img.shields.io/badge/Python-3.10+-blue.svg)](https://www.python.org/)
 [![LLM](https://img.shields.io/badge/LLM-OpenAI%20GPT--4o--mini-green.svg)](https://platform.openai.com/)
-[![Status](https://img.shields.io/badge/Status-Week%202%20Complete-brightgreen.svg)](#)
+[![Status](https://img.shields.io/badge/Status-Week%203%20In%20Progress-yellow.svg)](#)
 
-An observable, resilient agentic workflow that automates job research, CV matching, and tailored application drafting. Built over 14 days as a portfolio prototype to demonstrate reliable, tool-using AI agents with full execution transparency, crash recovery, and partial completion guarantees.
+An observable, resilient agentic workflow that automates job research, CV matching, and tailored application drafting. Built as a 30-day portfolio case study (currently at Day 18) to demonstrate reliable AI workflows with full execution transparency, crash recovery, partial completion guarantees, and measurable evaluation.
 
 ---
 
 ## 🎯 What This Project Does
 
-Given a set of job search keywords, the agent:
+Given a search query (or a list of keyword queries) and optionally your CV, the agent:
 
-1. **Searches** for matching roles using the [FreeHire](https://freehire.me) jobs API.
-2. **Researches** the most promising companies using web search.
-3. **Generates** tailored CV bullets and cover letters for each selected role.
-4. **Produces** a consolidated Markdown report ready for application.
+1. **Searches** for matching roles using the [FreeHire](https://freehire.me) jobs API (UK, last 30 days).
+2. **Escalates to company research** via web search (DuckDuckGo) only for jobs whose posting is too thin to write from. Agencies, jobs without a company name, and companies already researched in the run are skipped.
+3. **Generates** tailored CV bullets and a cover letter for every job returned (up to `--max-jobs`).
+4. **Produces** a consolidated Markdown report with a summary, each application, and any failed jobs.
 5. **Survives failures**: If the agent crashes or a specific job fails, it checkpoints its state, resumes cleanly, and delivers partial results for all successfully processed jobs.
 
 Every decision, tool call, retry, and error is captured in a structured JSONL audit trail. Nothing is hidden.
@@ -26,24 +26,20 @@ Every decision, tool call, retry, and error is captured in a structured JSONL au
 
 ```mermaid
 graph TD
-    A["CLI Input<br/>Keywords"] --> B["Agent Runner<br/>(Loop Controller)"]
-    B --> C{"LLM Decision<br/>(Structured JSON)"}
-    C -->|"tool_call"| D["Tool Executor<br/>(with Retry & Timeout)"]
-    C -->|"final_answer"| E["Validated Output<br/>(Pydantic Schema)"]
-    D --> F["FreeHire Job Search API"]
-    D --> G["Web Search<br/>DuckDuckGo"]
-    F --> B
-    G --> B
-    E --> H["Application Generator<br/>(Post-Loop LLM Call)"]
+    A["CLI Input<br/>query or keywords, optional CV"] --> B["Agent Runner<br/>(fixed pipeline)"]
+    B --> F["FreeHire search<br/>(retry + timeout)"]
+    F --> P{"For each job:<br/>research policy"}
+    P -->|"thin posting,<br/>known non-agency company"| G["Company research<br/>DuckDuckGo (retry + timeout)"]
+    P -->|"rich posting, agency,<br/>no company, or already researched"| H
+    G --> H["Application Generator<br/>(one LLM call per job)"]
     H --> I["Report Generator"]
-    I --> J["output/report.md"]
+    I --> J["reports/report_*.md"]
 
     K["Audit Logger"] -.->|"JSONL events"| L["traces/trace_*.jsonl"]
     M["Checkpoint Manager"] -.->|"State snapshots"| N["checkpoints/checkpoint_*.jsonl"]
-    
+
     B -.-> K
     B -.-> M
-    D -.-> K
 
     style A fill:#e1f5fe
     style J fill:#c8e6c9
@@ -53,8 +49,10 @@ graph TD
     style N fill:#fce4ec
 ```
 
-The agent operates in a strict loop with built-in resilience:
-- **Retry & Backoff**: Transient failures (timeouts, 503s) trigger bounded exponential backoff (max 3 attempts).
+The agent is a fixed pipeline, not an LLM-driven loop: it runs one search, then makes one pass over the jobs. The LLM writes the applications but does not choose tools. When to research is decided by a deterministic, testable rule (`research_policy.py`): a posting under 600 characters from a known non-agency company is researched; anything else is not. Research is optional, so if it fails the letter is written without it and the job still completes.
+
+Resilience features:
+- **Retry & Backoff**: Transient failures (timeouts, 503s) trigger bounded exponential backoff (max 3 attempts, 1s then 2s between them).
 - **Timeouts**: All external calls have hard time limits enforced via centralized config.
 - **Checkpointing**: State is persisted to JSONL after every job, enabling crash recovery.
 - **Partial Completion**: If a job fails permanently, it is logged, and the agent continues to the next job.
@@ -65,10 +63,12 @@ The agent operates in a strict loop with built-in resilience:
 
 The agent produces a single consolidated Markdown report in `reports/` containing:
 
-- Match analysis with cited CV evidence for each role
-- Tailored CV bullets rewritten for each specific job
-- Full cover letters addressed appropriately (including recruitment agency detection)
-- A "Failed Jobs" section detailing any roles that could not be processed and why
+- A header with query, status, jobs found, applications generated and the checkpoint file
+- For each job: title, company, location, URL, the full cover letter and the tailored CV bullets
+- A "Failed Jobs" section detailing any roles that could not be processed, with the error category
+- A closing summary of the run
+
+Cover letters for recruitment agencies are addressed to the consultant rather than the agency. This is an instruction in the generation prompt, not separate logic, so it is not guaranteed.
 
 ---
 
@@ -76,10 +76,10 @@ The agent produces a single consolidated Markdown report in `reports/` containin
 
 | Day | Scope | Status |
 |-----|-------|--------|
-| 1 | Agent loop, structured JSON output, max-step limit, OpenAI integration | ✅ Complete |
-| 2 | Tool use: FreeHire job search API + DuckDuckGo web search | ✅ Complete |
-| 3 | Guardrails: geography default, job freshness, evidence-based matching, research budget | ✅ Complete |
-| 4 | Context & memory: tiktoken counting, context window pruning | ✅ Complete |
+| 1 | Agent loop, structured JSON output, max-step limit, OpenAI integration | ⚠️ Superseded: the LLM-driven loop was replaced by a fixed pipeline in Day 11 |
+| 2 | FreeHire job search API integration | ✅ Complete (endpoint corrected on Day 16) |
+| 3 | DuckDuckGo search tool; guardrails (geography default, job freshness) | ⚠️ Partly superseded: `regions=uk` and `posted_within_days=30` remain in the search; the evidence-matching and research-budget guardrails and the search tool's use in the loop were removed in Day 11. Research was reconnected on Day 18 |
+| 4 | Context & memory: tiktoken counting, context window pruning | ⚠️ Superseded: removed in Day 11 (`tiktoken` is still listed as a dependency but unused) |
 | 5 | Audit trail: JSONL event logging, trace viewer CLI | ✅ Complete |
 | 6 | Real workflow: tailored CV bullets, cover letters, consolidated Markdown report | ✅ Complete |
 | 7 | Checkpoint: validation, portfolio packaging, limitations, next iteration | ✅ Complete |
@@ -90,6 +90,11 @@ The agent produces a single consolidated Markdown report in `reports/` containin
 | 12 | **Recovery**: Robust resume with state validation and interrupted run detection | ✅ Complete |
 | 13 | **Partial completion**: Delivers results even if individual jobs fail, tracks failures | ✅ Complete |
 | 14 | **Checkpoint**: End-to-end recovery demo, progress documentation | ✅ Complete |
+| 15 | **Golden dataset**: 20 queries across 5 categories; `--cv` and `--keywords` restored | ✅ Complete |
+| 16 | **Eval harness**: mock and live runs, scoring, reports; fixed FreeHire search (it was ignoring the query); blank-query rejection | ✅ Complete |
+| 17 | **Correctness & format evals**: per-application format, addressing and number-grounding checks | ✅ Complete |
+| 18 | **Tool selection & escalation**: rule-based DuckDuckGo research, hand-labelled scenarios | ✅ Complete |
+| 19-28 | Cost tracking and routing, failure modes, eval report, case study documents | ⏳ Planned |
 
 ---
 
@@ -111,6 +116,7 @@ The agent produces a single consolidated Markdown report in `reports/` containin
     # .venv\Scripts\Activate.ps1     # Windows PowerShell
 
     pip install -e .
+    pip install pytest               # for the test suite
 
     cp .env.example .env
 
@@ -136,6 +142,12 @@ Verify everything works:
 
     python -m src.job_agent.main "python engineer london" --max-jobs 5
 
+    # Tailored to your CV (kept in the gitignored private/ folder)
+    python -m src.job_agent.main "Forward Deployed Engineer" --cv private/my_cv.md --max-jobs 3
+
+    # Several queries from a JSON file
+    python -m src.job_agent.main --keywords examples/keywords.json --cv private/my_cv.md
+
 ### 2. View the Audit Trail
 
     # View the most recent trace as a human-readable narrative
@@ -156,6 +168,19 @@ Verify everything works:
 
     cat reports/report_*.md
 
+### 5. Run the Evaluations
+
+    # Offline and free: mocked search, LLM and research. Validates the harness and scoring.
+    python -m evals.runner
+
+    # Only the hand-labelled tool-selection scenarios (offline, free)
+    python -m evals.runner --scenarios-only
+
+    # Real FreeHire and OpenAI calls (costs money; asks for confirmation)
+    python -m evals.runner --live --max-jobs 2 --limit 5
+
+Reports are written to `evals/results/` (gitignored). Mock results say nothing about the agent itself; only `--live` runs measure it.
+
 ---
 
 ## 📁 Project Structure
@@ -163,31 +188,37 @@ Verify everything works:
     job-hunter-agent/
     ├── docs/
     │   ├── FAILURE_TAXONOMY.md       # Day 8: Failure categories and mitigation
-    │   └── PROGRESS.md               # Day 14: Checkpoint progress report
-    ├── scripts/
-    │   └── demo_recovery.sh          # Day 14: Manual recovery demonstration script
-    ├── tests/                        # Day 9-14: Comprehensive test suite (31+ tests)
-    │   ├── test_retry.py
-    │   ├── test_timeouts.py
-    │   ├── test_checkpoint.py
-    │   ├── test_resume.py
-    │   ├── test_partial_completion.py
-    │   └── test_recovery_demo.py
+    │   └── PROGRESS.md               # Day 14 checkpoint progress report
+    ├── evals/
+    │   ├── dataset_schema.py         # Day 15: Golden dataset models
+    │   ├── golden_dataset.json       # Day 15: 20 queries (standard, niche, broad, edge, agency)
+    │   ├── runner.py                 # Day 16: Mock/live eval runner (python -m evals.runner)
+    │   ├── scoring.py                # Day 16-18: Deterministic checks
+    │   ├── scenarios.py              # Day 18: Offline tool-selection scenarios
+    │   ├── tool_scenarios.json       # Day 18: Hand-labelled expected research decisions
+    │   ├── report.py                 # Day 16: Markdown and JSON eval reports
+    │   ├── result_models.py          # Shared result types
+    │   └── fixtures/mock_jobs.json   # Canned jobs for mock mode
+    ├── examples/                     # Sample keywords and a dummy CV
+    ├── tests/                        # Test suite (run with python -m pytest)
+    │   └── scripts/demo_recovery.sh  # Day 14: Manual recovery demonstration script
     ├── src/
     │   └── job_agent/
     │       ├── config.py             # Day 10: Centralized timeout configuration
     │       ├── failures.py           # Day 8: Exception hierarchy and classification
     │       ├── retry.py              # Day 9: Reusable exponential backoff wrapper
     │       ├── checkpoint.py         # Day 11-12: State persistence and resume logic
-    │       ├── agent_runner.py       # Core agent loop with partial completion
+    │       ├── agent_runner.py       # Pipeline controller with partial completion
+    │       ├── research_policy.py    # Day 18: When to research a company
     │       ├── application_generator.py # Tailored CV bullets + cover letter generation
     │       ├── audit_logger.py       # JSONL structured event logging
     │       ├── llm_client.py         # Centralized OpenAI wrapper with timeout
     │       ├── main.py               # CLI entrypoint with resume flags
     │       ├── models.py             # Pydantic schemas and state models
-    │       ├── prompts.py            # System prompts and prompt builders
+    │       ├── prompts.py            # Legacy Day 1 loop prompt (currently unused)
     │       ├── report_generator.py   # Consolidated Markdown report writer
-    │       ├── tools.py              # FreeHire API + DuckDuckGo web search
+    │       ├── tools.py              # FreeHire search + DuckDuckGo company research
+    │       ├── check_openai.py       # Verifies the OpenAI key
     │       └── view_trace.py         # Audit trail viewer CLI
     ├── .env.example                  # Template for environment variables
     ├── pyproject.toml                # Project metadata and dependencies
@@ -199,14 +230,16 @@ Verify everything works:
 
 | Feature | Layer | Description |
 |---------|-------|-------------|
-| **Input validation** | Code | Rejects empty or malformed queries |
-| **Max-step limit** | Code | Hard stop at `max_steps` to prevent infinite loops |
-| **Geography default** | Tool | Auto-defaults to `regions=uk` if LLM omits it |
+| **Input validation** | Code | Rejects empty or whitespace-only queries in the CLI and in `AgentRunner`, before any search |
+| **Search guard** | Code | Raises if FreeHire reports it ignored the query parameter, instead of processing an unfiltered feed |
+| **Geography default** | Tool | `regions=uk` is fixed in the search (not yet configurable) |
 | **Job freshness** | Tool | `posted_within_days=30` filters stale listings |
-| **Context pruning** | Code | Compresses history when token count exceeds limits |
-| **Output schema enforcement** | Code | Pydantic validation on every LLM response |
-| **Recruitment agency detection** | Prompt | Cover letters addressed to consultant, not agency |
-| **Bounded retry** | Code | Exponential backoff (1s, 2s, 4s) capped at 3 attempts |
+| **Research escalation policy** | Code | Company research only for thin postings from known, non-agency companies; one lookup per company per run |
+| **Graceful research failure** | Code | A failed lookup is logged and the letter is written without research; the job still completes |
+| **Grounding guard** | Code | Figures in a generated application must appear in the CV, the posting or the research. Otherwise it is regenerated once with the offending figures named; if it still fails it is kept and flagged "Review needed" in the report. Numbers only: an invented skill without a figure is not caught |
+| **Typed data models** | Code | Pydantic models for jobs, applications and failures. Malformed LLM JSON falls back to raw text rather than failing the run; the format evals detect it |
+| **Recruitment agency handling** | Prompt + Code | Letters are addressed to the consultant (prompt instruction); agencies are never researched (name pattern in `research_policy.py`) |
+| **Bounded retry** | Code | Exponential backoff (1s, then 2s) capped at 3 attempts |
 | **Timeout enforcement** | Code | Hard limits on all external API calls (LLM: 60s, FreeHire: 15s, DDG: 10s) |
 | **Checkpointing** | Code | State persisted to JSONL after every job step |
 | **Partial completion** | Code | Agent continues processing if individual jobs fail |
@@ -215,13 +248,13 @@ Verify everything works:
 
 ## 🧪 Testing
 
-The project includes a comprehensive test suite covering retry logic, timeout classification, checkpoint save/load, resume scenarios, partial completion, and full end-to-end recovery cycles.
+The test suite (about 130 tests) covers retry logic, timeout classification, checkpoint save/load, resume scenarios, partial completion, end-to-end recovery, the FreeHire search and research tools, the escalation policy, and the evaluation harness itself. Tests never touch the network: `tests/conftest.py` stubs company research for every test.
 
-    # Run all tests
-    pytest tests/ -v
+    # Run all tests (use "python -m pytest" so the active environment's pytest is used)
+    python -m pytest tests -q
 
     # Run the end-to-end recovery demo (shows kill/resume cycle)
-    pytest tests/test_recovery_demo.py -v -s
+    python -m pytest tests/test_recovery_demo.py -v -s
 
 ---
 
@@ -231,19 +264,22 @@ These are honest, deliberate scope boundaries — not bugs.
 
 | Limitation | Why | Mitigation Path |
 |-----------|-----|-----------------|
-| **No evaluation harness yet** | Week 1-2 focused on core resilience | Planned for Week 3: Golden dataset + automated scoring |
-| **No cost tracking yet** | Week 1-2 focused on resilience | Planned for Week 3: Token usage logging and model routing |
-| **Recruitment agencies are researched, not end-clients** | FreeHire lists the posting agency as the company | Day 6 prompt instructs the LLM to detect agencies. Future: parse description to extract real company. |
+| **No cost tracking yet** | Evals so far measure quality, not spend | Planned (Day 19): token usage logging and model routing |
+| **UK-only search** | `regions=uk` is fixed in the FreeHire call | Make regions configurable; non-UK dataset queries are weak tests until then |
+| **Agency end-clients are not identified; agency detection is name-based** | FreeHire lists the posting agency as the company, and only known names and patterns ("recruit…", "staffing", Hays, Ocho...) are recognised | Recognised agencies are not researched and letters address the consultant. An unlisted recruiter (e.g. Intec Select) is treated as a normal company. Future: use posting language ("our client") as a second signal and extract the real company |
+| **Research is search snippets only** | Cheap and fast; no page fetching or summarisation | Snippets are filtered for ads and capped at 3 results |
+| **Grounding covers numbers only** | Deterministic and free, at runtime and in the evals | An invented employer or skill without a figure would not be caught. A future LLM-judge check could cover this |
+| **Eval baseline is small** | Live runs cost money | First full live baseline (19/20) is in `docs/BASELINE.md`; it is one run of 34 jobs and predates the grounding guard |
 | **Single LLM provider** | OpenAI only for now | Architecture centralises all LLM calls behind `llm_client.py`. Swapping providers requires changing one file. |
-| **Cover letters are drafts, not final** | LLM-generated text requires human review | The report is explicitly framed as a starting point. Every letter should be reviewed before sending. |
+| **Cover letters are drafts, not final** | LLM-generated text requires human review | The report is a starting point. Every letter should be reviewed before sending. |
 
 ---
 
-## 🔮 Next Iteration Roadmap (Week 3)
+## 🔮 Next Iteration Roadmap
 
-1. **Evaluation harness** — Define 20 known-good input/output pairs and run them automatically to score correctness, format, and tool selection.
-2. **Cost measurement & model routing** — Log token usage per run and route simple tasks to cheaper models.
-3. **Failure mode documentation** — Document known failure frequencies and mitigation strategies based on real run data.
+1. **Cost measurement & model routing** (Day 19) — Log token usage per run and route simple tasks to cheaper models.
+2. **Failure mode documentation** (Day 20) — Document known failure frequencies and mitigation strategies based on real run data.
+3. **Week 3 checkpoint report** (Day 21) — Pass rates, cost per run and latency from a full live eval.
 4. **End-client extraction** — Parse job descriptions to identify the actual hiring company when the listing is from a recruitment agency.
 5. **Human-in-the-loop approval** — Pause before generating cover letters so the candidate can approve the selected jobs.
 
@@ -251,12 +287,11 @@ These are honest, deliberate scope boundaries — not bugs.
 
 ## 🛠️ Built With
 
-- [OpenAI API](https://platform.openai.com/) — LLM reasoning and structured output
+- [OpenAI API](https://platform.openai.com/) — Cover letter and CV bullet generation
 - [FreeHire API](https://freehire.me/docs/api) — Job search with full descriptions
 - [DuckDuckGo Search](https://pypi.org/project/ddgs/) — Company research
 - [Pydantic](https://docs.pydantic.dev/) — Input/output validation
 - [Rich](https://rich.readthedocs.io/) — Console output formatting
-- [tiktoken](https://github.com/openai/tiktoken) — Token counting for context management
 - [pytest](https://docs.pytest.org/) — Comprehensive test suite
 
 ---

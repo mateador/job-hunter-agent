@@ -53,3 +53,32 @@ def test_live_mode_aborts_without_confirmation(tmp_path, monkeypatch):
     monkeypatch.setattr("sys.stdin.isatty", lambda: False)
     assert main(["--live", "--ids", "std-01", "--out", str(tmp_path)]) == 1
     assert not list(tmp_path.glob("eval_*"))
+
+
+def test_mock_run_escalates_only_thin_non_agency_jobs(tmp_path):
+    result = run_query(_queries("agency-02")[0], False, 4, "gpt-4o-mini", tmp_path)
+    by_reason = {d["reason"] for d in result.research}
+    assert result.research and by_reason <= {"thin_description", "rich_description", "agency", "no_company",
+                                             "already_researched"}
+    researched = [d for d in result.research if d["decision"]]
+    assert result.tools_called.count("search_duckduckgo") == len(researched)
+    assert all(d["summary"] and d["sources"] for d in researched)
+
+
+def test_main_reports_scenarios_and_escalation(tmp_path, capsys):
+    assert main(["--ids", "std-02", "--out", str(tmp_path)]) == 0
+    out = capsys.readouterr().out
+    assert "Tool-selection scenarios: 14/14 passed" in out
+    md = next(tmp_path.glob("eval_mock_*.md")).read_text()
+    assert "## Tool-selection scenarios" in md and "**Escalation:**" in md
+
+
+def test_scenarios_only_mode_skips_dataset(tmp_path):
+    assert main(["--scenarios-only", "--out", str(tmp_path)]) == 0
+    assert not list(tmp_path.glob("eval_*"))
+
+
+def test_skip_scenarios(tmp_path, capsys):
+    main(["--ids", "std-01", "--skip-scenarios", "--out", str(tmp_path)])
+    assert "Tool-selection scenarios" not in capsys.readouterr().out
+    assert "## Tool-selection scenarios" not in next(tmp_path.glob("eval_mock_*.md")).read_text()

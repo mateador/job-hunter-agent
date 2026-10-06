@@ -4,6 +4,9 @@ from __future__ import annotations
 import re
 from typing import Any, Callable, Dict, List, Optional, Set
 
+from src.job_agent.grounding import extract_numbers  # noqa: F401  (re-exported for the harness)
+from src.job_agent.research_policy import normalise_company
+
 from .dataset_schema import GoldenQuery
 from .result_models import CheckResult, QueryScore, RunResult
 
@@ -18,25 +21,6 @@ MIN_WORDS, MAX_WORDS = 150, 350
 _GREETING = re.compile(r"^\s*(dear|hello|hi|to whom)\b", re.I)
 _PLACEHOLDER = re.compile(r"\[(your|company|hiring|name|position|job|insert|candidate)[^\]]*\]|\bbullet \d\b", re.I)
 _TITLE_STOPWORDS = {"and", "the", "for", "with", "ltd", "plc"}
-
-_NUMBER_WORDS = {w: str(i) for i, w in enumerate(
-    "zero one two three four five six seven eight nine ten eleven twelve thirteen fourteen fifteen "
-    "sixteen seventeen eighteen nineteen twenty".split())}
-_NUMBER_WORDS.update({"thirty": "30", "forty": "40", "fifty": "50", "sixty": "60",
-                      "seventy": "70", "eighty": "80", "ninety": "90", "hundred": "100"})
-# Digits not glued to letters ("1st", "2m" are skipped); a trailing % is allowed and ignored.
-_NUMBER = re.compile(r"(?<![\w.,])\d[\d,]*(?:\.\d+)?(?!\w)")
-
-
-def extract_numbers(text: Optional[str]) -> Set[str]:
-    """Numeric values in text, normalised: '1,000' -> '1000', '30%' -> '30', 'eighteen' -> '18'."""
-    if not text:
-        return set()
-    found = {m.group().replace(",", "").rstrip(".") for m in _NUMBER.finditer(text)}
-    found = {n[:-2] if n.endswith(".0") else n for n in found}
-    found |= {_NUMBER_WORDS[w] for w in re.findall(r"[a-z]+", text.lower()) if w in _NUMBER_WORDS}
-    return found
-
 
 # ── helpers ──
 
@@ -194,30 +178,80 @@ def check_grounding(result: RunResult, query: GoldenQuery) -> CheckResult:
     if not result.cv_numbers:
         return CheckResult(name="grounding", passed=True, skipped=True, detail="no CV numbers to ground against")
     cv_numbers = set(result.cv_numbers)
+    research_numbers = {d.get("job_id"): set(d.get("numbers") or []) for d in result.research}
 
     def problems_for(app: Dict[str, Any], job: Dict[str, Any]) -> List[str]:
         allowed = cv_numbers | set(job.get("description_numbers") or []) \
-            | extract_numbers(job.get("title")) | extract_numbers(job.get("description"))
+            | extract_numbers(job.get("title")) | extract_numbers(job.get("description")) \
+            | research_numbers.get(app.get("job_id"), set())
         text = " ".join([str(app.get("cover_letter") or "")] + [str(b) for b in app.get("cv_bullets") or []])
         invented = sorted(extract_numbers(text) - allowed, key=lambda n: (len(n), n))
         return [f"numbers not in CV or posting: {invented}"] if invented else []
 
-    return _per_application("grounding", result, problems_for, "{n} applications use only grounded numbers")
+    return _per_application("grounding", result, problems_for,
+                            "{n} applications use only numbers from the CV, posting or research")
 
 
 # ── tools ──
 
 def check_tools(result: RunResult, query: GoldenQuery) -> CheckResult:
-    """FreeHire is required when expected; DuckDuckGo stays a note until it is wired in (Day 18)."""
+    """Every tool the dataset expects for the query must have been called.
+
+    DuckDuckGo is deliberately not listed per query: whether to research is decided per job
+    (see check_tool_selection and the tool-selection scenarios).
+    """
     names = {"freehire": "search_freehire", "duckduckgo": "search_duckduckgo"}
     expected = [names[t] for t in query.expected_tools]
-    called = sorted(set(result.tools_called))
-    required_missing = [t for t in expected if t == "search_freehire" and t not in result.tools_called]
-    ddg_missing = "search_duckduckgo" in expected and "search_duckduckgo" not in result.tools_called
-    detail = f"expected={expected} called={called}"
-    if ddg_missing:
-        detail += " (search_duckduckgo not called: known gap, not scored)"
-    return CheckResult(name="tools", passed=not required_missing, detail=detail)
+    missing = [t for t in expected if t not in result.tools_called]
+    return CheckResult(name="tools", passed=not missing,
+                       detail=f"expected={expected} called={sorted(set(result.tools_called))}")
+
+
+def check_tool_selection(result: RunResult, query: GoldenQuery) -> CheckResult:
+    """DuckDuckGo is called when, and only when, the escalation policy decided to research."""
+    wanted = sum(1 for d in result.research if d.get("decision"))
+    calls = result.tools_called.count("search_duckduckgo")
+    if result.error:
+        return CheckResult(name="tool_selection", passed=True, skipped=True, detail="run raised")
+    if not result.research and not calls:
+        return CheckResult(name="tool_selection", passed=True, skipped=True, detail="no jobs to decide on")
+    reasons = ", ".join(f"{k}={v}" for k, v in sorted(_count(d["reason"] for d in result.research).items()))
+    if calls < wanted:  # retries may add calls, never remove them
+        return CheckResult(name="tool_selection", passed=False,
+                           detail=f"policy asked for {wanted} lookups but DuckDuckGo started {calls} times ({reasons})")
+    if calls and not wanted:
+        return CheckResult(name="tool_selection", passed=False,
+                           detail=f"DuckDuckGo called {calls} times without a research decision ({reasons})")
+    return CheckResult(name="tool_selection", passed=True,
+                       detail=f"{wanted} lookups wanted, {calls} calls ({reasons})")
+
+
+def check_escalation_graceful(result: RunResult, query: GoldenQuery) -> CheckResult:
+    """A research failure must degrade to a letter without research, not lose the job."""
+    failed = [d for d in result.research if d.get("error")]
+    if not failed:
+        return CheckResult(name="escalation_graceful", passed=True, skipped=True, detail="no research failures")
+    done = {a.get("job_id") for a in result.applications}
+    lost = [str(d["job_id"])[:30] for d in failed if d["job_id"] not in done]
+    return CheckResult(name="escalation_graceful", passed=not lost,
+                       detail=f"{len(failed)} research failures, jobs lost: {lost}" if lost
+                       else f"{len(failed)} research failures, all jobs still got applications")
+
+
+def check_no_redundant_research(result: RunResult, query: GoldenQuery) -> CheckResult:
+    lookups = [normalise_company(d.get("company")) for d in result.research if d.get("decision")]
+    if not lookups:
+        return CheckResult(name="no_redundant_research", passed=True, skipped=True, detail="no lookups")
+    dupes = sorted({c for c in lookups if lookups.count(c) > 1})
+    return CheckResult(name="no_redundant_research", passed=not dupes,
+                       detail=f"repeated lookups for {dupes}" if dupes else f"{len(lookups)} distinct companies researched")
+
+
+def _count(items) -> Dict[str, int]:
+    counts: Dict[str, int] = {}
+    for i in items:
+        counts[i] = counts.get(i, 0) + 1
+    return counts
 
 
 def check_tool_sequence(result: RunResult, query: GoldenQuery) -> CheckResult:
@@ -235,14 +269,17 @@ def check_tool_sequence(result: RunResult, query: GoldenQuery) -> CheckResult:
     if llm and not result.jobs:
         problems.append(f"{llm} LLM calls but no jobs")
     processed = len(result.applications) + len(result.failed_jobs)
-    note = f"; {llm} LLM calls for {processed} jobs (retries?)" if llm != processed and result.jobs else ""
+    expected_llm = processed + result.grounding_retries
+    note = (f"; {llm} LLM calls for {processed} jobs + {result.grounding_retries} grounding retries (retries?)"
+            if llm != expected_llm and result.jobs else "")
     return CheckResult(name="tool_sequence", passed=not problems,
                        detail=("; ".join(problems) or f"search once, then {llm} LLM calls") + note)
 
 
 CHECKS: List[Callable[[RunResult, GoldenQuery], CheckResult]] = [
     check_status, check_min_jobs, check_format, check_addressing, check_grounding,
-    check_relevance, check_search_honored, check_tools, check_tool_sequence,
+    check_relevance, check_search_honored, check_tools, check_tool_selection, check_tool_sequence,
+    check_escalation_graceful, check_no_redundant_research,
 ]
 
 

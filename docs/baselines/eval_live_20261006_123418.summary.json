@@ -1,0 +1,360 @@
+{
+  "source_run": "eval_live_20261006_123418",
+  "generated": "2026-10-06T12:34:18.992686",
+  "mode": "live",
+  "settings": {
+    "model": "gpt-4o-mini",
+    "max_jobs_per_query": 2,
+    "queries": 20,
+    "golden_dataset_version": "1.1",
+    "research_threshold_chars": 600,
+    "note": "Run predates the empty-search-result fix and the runtime grounding guard."
+  },
+  "summary": {
+    "escalation": {
+      "jobs": 34,
+      "researched": 11,
+      "failures": 2,
+      "by_reason": {
+        "agency": 6,
+        "already_researched": 1,
+        "rich_description": 16,
+        "thin_description": 11
+      }
+    },
+    "total": 20,
+    "passed": 19,
+    "pass_rate": 0.95,
+    "by_category": {
+      "agency": {
+        "n": 3,
+        "pass_rate": 1.0
+      },
+      "broad": {
+        "n": 3,
+        "pass_rate": 1.0
+      },
+      "edge_case": {
+        "n": 4,
+        "pass_rate": 1.0
+      },
+      "niche": {
+        "n": 4,
+        "pass_rate": 0.75
+      },
+      "standard": {
+        "n": 6,
+        "pass_rate": 1.0
+      }
+    },
+    "by_check": {
+      "addressing": {
+        "n": 17,
+        "pass_rate": 1.0,
+        "mean_score": 1.0
+      },
+      "escalation_graceful": {
+        "n": 2,
+        "pass_rate": 1.0,
+        "mean_score": null
+      },
+      "format": {
+        "n": 17,
+        "pass_rate": 1.0,
+        "mean_score": 1.0
+      },
+      "grounding": {
+        "n": 11,
+        "pass_rate": 0.9090909090909091,
+        "mean_score": 0.9545454545454546
+      },
+      "min_jobs": {
+        "n": 19,
+        "pass_rate": 1.0,
+        "mean_score": null
+      },
+      "no_redundant_research": {
+        "n": 8,
+        "pass_rate": 1.0,
+        "mean_score": null
+      },
+      "relevance": {
+        "n": 16,
+        "pass_rate": 1.0,
+        "mean_score": 0.9375
+      },
+      "search_honored": {
+        "n": 20,
+        "pass_rate": 1.0,
+        "mean_score": null
+      },
+      "status": {
+        "n": 20,
+        "pass_rate": 1.0,
+        "mean_score": null
+      },
+      "tool_selection": {
+        "n": 17,
+        "pass_rate": 1.0,
+        "mean_score": null
+      },
+      "tool_sequence": {
+        "n": 19,
+        "pass_rate": 1.0,
+        "mean_score": null
+      },
+      "tools": {
+        "n": 20,
+        "pass_rate": 1.0,
+        "mean_score": null
+      }
+    },
+    "latency_mean_s": 10.028143736199855,
+    "latency_max_s": 15.348795895988587
+  },
+  "scenarios": [
+    {
+      "id": "rich-description",
+      "passed": true
+    },
+    {
+      "id": "thin-description",
+      "passed": true
+    },
+    {
+      "id": "boundary-599",
+      "passed": true
+    },
+    {
+      "id": "boundary-600",
+      "passed": true
+    },
+    {
+      "id": "missing-description",
+      "passed": true
+    },
+    {
+      "id": "missing-company",
+      "passed": true
+    },
+    {
+      "id": "blank-company",
+      "passed": true
+    },
+    {
+      "id": "named-agency",
+      "passed": true
+    },
+    {
+      "id": "generic-agency",
+      "passed": true
+    },
+    {
+      "id": "duplicate-company",
+      "passed": true
+    },
+    {
+      "id": "duplicate-company-case",
+      "passed": true
+    },
+    {
+      "id": "different-companies",
+      "passed": true
+    },
+    {
+      "id": "research-fails",
+      "passed": true
+    },
+    {
+      "id": "research-empty",
+      "passed": true
+    }
+  ],
+  "queries": [
+    {
+      "id": "std-01",
+      "category": "standard",
+      "query": "Forward Deployed Engineer",
+      "passed": true,
+      "jobs": 2,
+      "latency_s": 13.21,
+      "failed_checks": []
+    },
+    {
+      "id": "std-02",
+      "category": "standard",
+      "query": "python engineer london",
+      "passed": true,
+      "jobs": 2,
+      "latency_s": 11.46,
+      "failed_checks": []
+    },
+    {
+      "id": "std-03",
+      "category": "standard",
+      "query": "backend engineer",
+      "passed": true,
+      "jobs": 2,
+      "latency_s": 12.9,
+      "failed_checks": []
+    },
+    {
+      "id": "std-04",
+      "category": "standard",
+      "query": "solutions engineer",
+      "passed": true,
+      "jobs": 2,
+      "latency_s": 13.53,
+      "failed_checks": []
+    },
+    {
+      "id": "std-05",
+      "category": "standard",
+      "query": "AI engineer",
+      "passed": true,
+      "jobs": 2,
+      "latency_s": 12.19,
+      "failed_checks": []
+    },
+    {
+      "id": "std-06",
+      "category": "standard",
+      "query": "data engineer",
+      "passed": true,
+      "jobs": 2,
+      "latency_s": 8.83,
+      "failed_checks": []
+    },
+    {
+      "id": "niche-01",
+      "category": "niche",
+      "query": "LLM evaluation engineer",
+      "passed": true,
+      "jobs": 2,
+      "latency_s": 10.49,
+      "failed_checks": []
+    },
+    {
+      "id": "niche-02",
+      "category": "niche",
+      "query": "agent infrastructure engineer",
+      "passed": false,
+      "jobs": 2,
+      "latency_s": 14.33,
+      "failed_checks": [
+        {
+          "check": "grounding",
+          "detail": "cloud-infrastructure-engineer-: numbers not in CV or posting: ['25', '40']"
+        }
+      ]
+    },
+    {
+      "id": "niche-03",
+      "category": "niche",
+      "query": "applied AI engineer healthcare",
+      "passed": true,
+      "jobs": 2,
+      "latency_s": 10.44,
+      "failed_checks": []
+    },
+    {
+      "id": "niche-04",
+      "category": "niche",
+      "query": "customer engineer observability",
+      "passed": true,
+      "jobs": 2,
+      "latency_s": 12.93,
+      "failed_checks": []
+    },
+    {
+      "id": "broad-01",
+      "category": "broad",
+      "query": "software engineer",
+      "passed": true,
+      "jobs": 2,
+      "latency_s": 10.83,
+      "failed_checks": []
+    },
+    {
+      "id": "broad-02",
+      "category": "broad",
+      "query": "engineer remote",
+      "passed": true,
+      "jobs": 2,
+      "latency_s": 10.03,
+      "failed_checks": []
+    },
+    {
+      "id": "broad-03",
+      "category": "broad",
+      "query": "developer",
+      "passed": true,
+      "jobs": 2,
+      "latency_s": 10.25,
+      "failed_checks": []
+    },
+    {
+      "id": "edge-01",
+      "category": "edge_case",
+      "query": "qzxv wplk jhgf",
+      "passed": true,
+      "jobs": 0,
+      "latency_s": 0.41,
+      "failed_checks": []
+    },
+    {
+      "id": "edge-02",
+      "category": "edge_case",
+      "query": "",
+      "passed": true,
+      "jobs": 0,
+      "latency_s": 0.0,
+      "failed_checks": []
+    },
+    {
+      "id": "edge-03",
+      "category": "edge_case",
+      "query": "senior software engineer distributed systems distributed sys",
+      "passed": true,
+      "jobs": 2,
+      "latency_s": 10.85,
+      "failed_checks": []
+    },
+    {
+      "id": "edge-04",
+      "category": "edge_case",
+      "query": "engenheiro de software Lisboa",
+      "passed": true,
+      "jobs": 0,
+      "latency_s": 0.21,
+      "failed_checks": []
+    },
+    {
+      "id": "agency-01",
+      "category": "agency",
+      "query": "recruitment consultant python",
+      "passed": true,
+      "jobs": 2,
+      "latency_s": 10.03,
+      "failed_checks": []
+    },
+    {
+      "id": "agency-02",
+      "category": "agency",
+      "query": "contract python developer",
+      "passed": true,
+      "jobs": 2,
+      "latency_s": 15.35,
+      "failed_checks": []
+    },
+    {
+      "id": "agency-03",
+      "category": "agency",
+      "query": "software engineer via staffing agency",
+      "passed": true,
+      "jobs": 2,
+      "latency_s": 12.3,
+      "failed_checks": []
+    }
+  ]
+}

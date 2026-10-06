@@ -3,11 +3,15 @@ Day 15: Tools with correct FreeHire API endpoint.
 """
 import logging
 import os
+from typing import Optional
+from urllib.parse import urlparse
 from ddgs import DDGS
+from ddgs.exceptions import DDGSException
 import requests
 from .audit_logger import AuditLogger
 from .retry import execute_with_retry
 from .config import FREEHIRE_TIMEOUT, DUCKDUCKGO_TIMEOUT
+from .models import CompanyResearch
 
 logger = logging.getLogger(__name__)
 
@@ -96,9 +100,14 @@ def search_duckduckgo(
     **kwargs
 ) -> list:
     def _call(**call_kwargs):
-        with DDGS(timeout=DUCKDUCKGO_TIMEOUT) as ddgs:
-            results = list(ddgs.text(call_kwargs["query"], max_results=call_kwargs["limit"]))
-            return results
+        try:
+            with DDGS(timeout=DUCKDUCKGO_TIMEOUT) as ddgs:
+                return list(ddgs.text(call_kwargs["query"], max_results=call_kwargs["limit"]))
+        except DDGSException as e:
+            # ddgs signals an empty result set with an exception; that is an outcome, not a failure.
+            if "no results" in str(e).lower():
+                return []
+            raise
 
     def _modify_ddg_kwargs(kwargs_dict, attempt):
         current_limit = kwargs_dict.get("limit", 5)
@@ -114,4 +123,40 @@ def search_duckduckgo(
         audit_logger=audit_logger,
         tool_name="search_duckduckgo",
         modify_kwargs_fn=_modify_ddg_kwargs
+    )
+
+
+def _is_ad_result(url: str) -> bool:
+    """DuckDuckGo mixes sponsored results (Bing/DDG click trackers) into text search."""
+    parsed = urlparse(url or "")
+    return "aclick" in parsed.path or parsed.path.endswith("/y.js") or not parsed.netloc
+
+
+def research_company(
+    company: str,
+    audit_logger: AuditLogger = None,
+    max_results: int = 3,
+    snippet_chars: int = 240,
+) -> Optional[CompanyResearch]:
+    """Look a company up on the web and condense the top organic results into a summary.
+
+    Returns None when nothing useful came back. Raises on tool failure; the caller decides
+    how to degrade.
+    """
+    results = search_duckduckgo(
+        f"{company} company about products culture",
+        limit=max_results * 2,  # headroom for filtered-out ads
+        audit_logger=audit_logger,
+    )
+    organic = [r for r in results if not _is_ad_result(r.get("href", ""))][:max_results]
+    organic = [r for r in organic if (r.get("body") or "").strip()]
+    if not organic:
+        return None
+    summary = " ".join(
+        f"{(r.get('title') or '').strip()}: {r['body'].strip()[:snippet_chars]}" for r in organic
+    )
+    return CompanyResearch(
+        company_name=company,
+        summary=summary,
+        sources=[r["href"] for r in organic],
     )

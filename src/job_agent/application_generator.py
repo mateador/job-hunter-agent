@@ -52,6 +52,7 @@ def generate_application(
     cv_text: Optional[str] = None,
     company_research: Optional[CompanyResearch] = None,
     candidate_profile: Optional[JobCandidate] = None,
+    revision_note: Optional[str] = None,
 ) -> Application:
     """
     Generate a tailored cover letter and CV bullets for one specific job.
@@ -63,6 +64,7 @@ def generate_application(
         cv_text: Optional raw CV text (takes priority over candidate_profile)
         company_research: Optional company research data
         candidate_profile: Optional candidate profile (used if cv_text not provided)
+        revision_note: Optional feedback on a previous draft, appended to the prompt
 
     Returns:
         Application object with cover_letter and cv_bullets
@@ -85,6 +87,8 @@ def generate_application(
             if company_research.culture:
                 research_parts.append(f"Culture: {company_research.culture}")
             research_context = "\n".join(research_parts) if research_parts else "Limited company information available."
+
+    revision_section = f"\nREVISION REQUIRED:\n{revision_note}\n" if revision_note else ""
 
     prompt = f"""You are a professional career coach and technical writer.
 
@@ -115,9 +119,10 @@ Generate two things:
 IMPORTANT RULES:
 - If the company appears to be a recruitment agency (e.g., Ocho, Corriculo, Hays, Michael Page), address the letter to the recruitment consultant and reference the end-client role described in the job posting.
 - Do NOT invent skills, companies, or experience not present in the candidate's CV or profile.
+- Only state facts about the hiring company that appear in the job description or the company research above.
 - Keep the tone professional but authentic, not generic or overly formal.
 - The candidate is based in Cambridge, UK, and holds a Skilled Worker Visa Dependant (no sponsorship required).
-
+{revision_section}
 Respond with valid JSON only, no Markdown, no code fences:
 {{
   "tailored_cv_bullets": ["bullet 1", "bullet 2", "bullet 3"],

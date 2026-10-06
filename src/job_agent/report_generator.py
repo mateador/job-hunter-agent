@@ -72,6 +72,9 @@ def generate_report(result: Dict[str, Any]) -> str:
                 for bullet in app.cv_bullets:
                     lines.append(f"- {bullet}")
                 lines.append("")
+                for warning in app.warnings:
+                    lines.append(f"> ⚠️ **Review needed:** {warning}")
+                    lines.append("")
                 lines.append("---")
                 lines.append("")
 
