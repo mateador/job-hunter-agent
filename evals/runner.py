@@ -23,9 +23,10 @@ from src.job_agent.agent_runner import AgentRunner
 from src.job_agent.audit_logger import AuditLogger
 from src.job_agent.checkpoint import CheckpointManager
 from src.job_agent.models import CompanyResearch
+from src.job_agent.usage import LLMUsage
 
 from .dataset_schema import GoldenQuery, load_dataset
-from .report import write_reports
+from .report import summarize, write_reports
 from .result_models import QueryScore, RunResult
 from .scenarios import run_scenarios
 from .scoring import extract_numbers, score_result
@@ -97,7 +98,17 @@ def _mock_environment(audit_logger: AuditLogger, jobs: Optional[List[dict]] = No
     def fake_chat(self, messages, **kwargs):
         self.audit_logger.log_attempt("llm_chat", 1, "start")
         self.audit_logger.log_attempt("llm_chat", 1, "success")
-        return mock_llm_response(messages[-1]["content"])
+        response = mock_llm_response(messages[-1]["content"])
+        # Synthetic usage (about 4 characters per token) so the cost plumbing is exercised offline.
+        purpose = self._tags.get("purpose", "unspecified")
+        usage = LLMUsage(model=self.router.model_for(purpose), purpose=purpose, job_id=self._tags.get("job_id"),
+                         prompt_tokens=sum(len(str(m["content"])) for m in messages) // 4,
+                         completion_tokens=len(response) // 4, synthetic=True)
+        self.usage.record(usage)
+        self.audit_logger.log_event(event_type="llm_usage", model=usage.model, purpose=purpose,
+                                    job_id=usage.job_id, prompt_tokens=usage.prompt_tokens,
+                                    completion_tokens=usage.completion_tokens, cost_usd=usage.cost_usd)
+        return response
 
     with patch.dict(os.environ, {"OPENAI_API_KEY": os.environ.get("OPENAI_API_KEY", "mock-key")}), \
          patch("src.job_agent.agent_runner.search_freehire", make_mock_search(audit_logger, jobs)), \
@@ -147,7 +158,8 @@ def _load_cv(query: GoldenQuery, live: bool, notes: List[str]) -> Optional[str]:
     return path.read_text(encoding="utf-8")
 
 
-def run_query(query: GoldenQuery, live: bool, max_jobs: int, model: str, out_dir: Path) -> RunResult:
+def run_query(query: GoldenQuery, live: bool, max_jobs: int, model: str, out_dir: Path,
+              retry_model: Optional[str] = None) -> RunResult:
     mode = "live" if live else "mock"
     notes: List[str] = []
     run_dir = out_dir / "runs" / mode / query.id
@@ -162,7 +174,7 @@ def run_query(query: GoldenQuery, live: bool, max_jobs: int, model: str, out_dir
     try:
         with ctx:
             agent = AgentRunner(audit_logger=audit_logger, checkpoint_manager=checkpoint_manager,
-                                model=model, max_jobs=max_jobs, cv_text=cv_text)
+                                model=model, max_jobs=max_jobs, cv_text=cv_text, retry_model=retry_model)
             output = agent.run(query.query)
         result.status = output["status"]
         result.jobs = [{**j.model_dump(), "description": (j.description or "")[:500],
@@ -170,6 +182,7 @@ def run_query(query: GoldenQuery, live: bool, max_jobs: int, model: str, out_dir
                        for j in output["jobs_found"]]
         result.applications = [a.model_dump() for a in output["applications"]]
         result.failed_jobs = [f.model_dump() for f in output["failed_jobs"]]
+        result.usage = output.get("usage", {})
         result.research = [{**d, "numbers": sorted(extract_numbers(d.get("summary")))}
                            for d in output["research_decisions"]]
     except Exception as e:  # a crash is a result, not a harness failure
@@ -182,12 +195,30 @@ def run_query(query: GoldenQuery, live: bool, max_jobs: int, model: str, out_dir
     return result
 
 
-def run_dataset(queries: List[GoldenQuery], live: bool, max_jobs: int, model: str, out_dir: Path) -> List[QueryScore]:
-    scores = []
+def run_dataset_budgeted(queries: List[GoldenQuery], live: bool, max_jobs: int, model: str, out_dir: Path,
+                         retry_model: Optional[str] = None, max_cost: Optional[float] = None):
+    """Run queries in order, stopping once estimated spend exceeds max_cost (USD).
+
+    The cap is checked between queries, so one query's cost can overshoot it. Returns
+    (scores, stop_reason); stop_reason is None when every query ran.
+    """
+    scores: List[QueryScore] = []
+    spent = 0.0
     for i, q in enumerate(queries, 1):
+        if max_cost is not None and spent > max_cost:
+            reason = (f"Stopped after {len(scores)}/{len(queries)} queries: estimated cost ${spent:.4f} "
+                      f"exceeded the ${max_cost:.2f} cap.")
+            print(reason)
+            return scores, reason
         print(f"[{i}/{len(queries)}] {q.id}: {q.query.strip()[:50]!r}")
-        scores.append(score_result(run_query(q, live, max_jobs, model, out_dir), q))
-    return scores
+        result = run_query(q, live, max_jobs, model, out_dir, retry_model)
+        spent += (result.usage or {}).get("cost_usd", 0.0)
+        scores.append(score_result(result, q))
+    return scores, None
+
+
+def run_dataset(queries: List[GoldenQuery], live: bool, max_jobs: int, model: str, out_dir: Path) -> List[QueryScore]:
+    return run_dataset_budgeted(queries, live, max_jobs, model, out_dir)[0]
 
 
 def main(argv: Optional[List[str]] = None) -> int:
@@ -201,6 +232,8 @@ def main(argv: Optional[List[str]] = None) -> int:
     p.add_argument("--skip-scenarios", action="store_true", help="Do not run the tool-selection scenarios")
     p.add_argument("--max-jobs", type=int, default=3, help="Jobs to process per query")
     p.add_argument("--model", default="gpt-4o-mini")
+    p.add_argument("--retry-model", help="Model for grounding retries (default: same as --model)")
+    p.add_argument("--max-cost", type=float, help="Stop once estimated cost (USD, list price) exceeds this")
     p.add_argument("--out", type=Path, default=DEFAULT_OUT, help="Output directory")
     args = p.parse_args(argv)
     load_dotenv(Path(__file__).parent.parent / ".env")
@@ -232,10 +265,21 @@ def main(argv: Optional[List[str]] = None) -> int:
             print("Aborted. Use --yes to skip this prompt.")
             return 1
 
-    scores = run_dataset(queries, args.live, args.max_jobs, args.model, args.out)
-    json_path, md_path = write_reports(scores, "live" if args.live else "mock", args.out, scenario_results)
+    scores, stopped = run_dataset_budgeted(queries, args.live, args.max_jobs, args.model, args.out,
+                                           args.retry_model, args.max_cost)
+    json_path, md_path = write_reports(scores, "live" if args.live else "mock", args.out, scenario_results,
+                                       notes=[stopped] if stopped else None)
     passed = sum(s.passed for s in scores)
-    print(f"\n{passed}/{len(scores)} queries passed\nReport: {md_path}\nData:   {json_path}")
+    cost = summarize(scores)["cost"]
+    print(f"\n{passed}/{len(scores)} queries passed")
+    extras = []
+    if cost["synthetic"]:
+        extras.append("synthetic mock estimate")
+    if cost["unpriced_calls"]:
+        extras.append(f"{cost['unpriced_calls']} unpriced calls not included")
+    suffix = f", {', '.join(extras)}" if extras else ""
+    print(f"Estimated cost: ${cost['cost_usd']:.4f} ({cost['total_tokens']} tokens{suffix})")
+    print(f"Report: {md_path}\nData:   {json_path}")
     return 0
 
 

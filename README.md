@@ -94,7 +94,8 @@ Cover letters for recruitment agencies are addressed to the consultant rather th
 | 16 | **Eval harness**: mock and live runs, scoring, reports; fixed FreeHire search (it was ignoring the query); blank-query rejection | ✅ Complete |
 | 17 | **Correctness & format evals**: per-application format, addressing and number-grounding checks | ✅ Complete |
 | 18 | **Tool selection & escalation**: rule-based DuckDuckGo research, hand-labelled scenarios | ✅ Complete |
-| 19-28 | Cost tracking and routing, failure modes, eval report, case study documents | ⏳ Planned |
+| 19 | **Cost & routing**: token usage and estimated cost per call/run, model router with a separate grounding-retry model, model comparison tool | ✅ Complete (defaults unchanged until the comparison supports a change) |
+| 20-28 | Failure modes, eval report, case study documents | ⏳ Planned |
 
 ---
 
@@ -148,6 +149,11 @@ Verify everything works:
     # Several queries from a JSON file
     python -m src.job_agent.main --keywords examples/keywords.json --cv private/my_cv.md
 
+    # Use a different model for grounding retries (default: same as --model)
+    python -m src.job_agent.main "python engineer london" --model gpt-4o-mini --retry-model <stronger-model>
+
+Each run prints its token usage and estimated cost, and the report's summary repeats it.
+
 ### 2. View the Audit Trail
 
     # View the most recent trace as a human-readable narrative
@@ -179,7 +185,16 @@ Verify everything works:
     # Real FreeHire and OpenAI calls (costs money; asks for confirmation)
     python -m evals.runner --live --max-jobs 2 --limit 5
 
+    # Stop a live run once its estimated cost passes a cap (checked between queries)
+    python -m evals.runner --live --max-cost 0.50
+
+    # Compare models on the same queries: quality, cost per application and latency
+    python -m evals.compare --models gpt-4o-mini,<other-model> --limit 6 --max-cost 0.50
+    python -m evals.compare --mock --models a,b      # offline dry run of the tooling
+
 Reports are written to `evals/results/` (gitignored). Mock results say nothing about the agent itself; only `--live` runs measure it.
+
+**About the cost numbers.** They are estimates at the list prices in `src/job_agent/pricing.json`, not billing: credits, free tiers and discounts are not reflected, and failed or timed-out attempts report no usage so are not counted. A model missing from the table is reported as unpriced and never guessed. The price table was fetched on 2026-10-06 and must be checked by a person against OpenAI's pricing page; its `verified` flag stays `false` until then.
 
 ---
 
@@ -193,6 +208,7 @@ Reports are written to `evals/results/` (gitignored). Mock results say nothing a
     │   ├── dataset_schema.py         # Day 15: Golden dataset models
     │   ├── golden_dataset.json       # Day 15: 20 queries (standard, niche, broad, edge, agency)
     │   ├── runner.py                 # Day 16: Mock/live eval runner (python -m evals.runner)
+    │   ├── compare.py                # Day 19: Compare models on quality, cost and latency
     │   ├── scoring.py                # Day 16-18: Deterministic checks
     │   ├── scenarios.py              # Day 18: Offline tool-selection scenarios
     │   ├── tool_scenarios.json       # Day 18: Hand-labelled expected research decisions
@@ -210,6 +226,11 @@ Reports are written to `evals/results/` (gitignored). Mock results say nothing a
     │       ├── checkpoint.py         # Day 11-12: State persistence and resume logic
     │       ├── agent_runner.py       # Pipeline controller with partial completion
     │       ├── research_policy.py    # Day 18: When to research a company
+    │       ├── grounding.py          # Day 18: Figures must come from the CV, posting or research
+    │       ├── usage.py              # Day 19: Per-call token usage and aggregation
+    │       ├── pricing.py            # Day 19: Cost estimation from pricing.json
+    │       ├── pricing.json          # Day 19: List prices (verify before relying on them)
+    │       ├── routing.py            # Day 19: Which model serves which kind of call
     │       ├── application_generator.py # Tailored CV bullets + cover letter generation
     │       ├── audit_logger.py       # JSONL structured event logging
     │       ├── llm_client.py         # Centralized OpenAI wrapper with timeout
@@ -264,7 +285,8 @@ These are honest, deliberate scope boundaries — not bugs.
 
 | Limitation | Why | Mitigation Path |
 |-----------|-----|-----------------|
-| **No cost tracking yet** | Evals so far measure quality, not spend | Planned (Day 19): token usage logging and model routing |
+| **Costs are list-price estimates** | Billing may differ (credits, free tiers); failed attempts report no usage; the price table is not yet verified | Verify `pricing.json` against the pricing page; compare with the actual invoice |
+| **Model routing is a mechanism, not a policy** | Every call uses `--model`; only grounding retries can use a different `--retry-model`, and no comparison has justified one yet | Run `python -m evals.compare` and change defaults only if the data supports it |
 | **UK-only search** | `regions=uk` is fixed in the FreeHire call | Make regions configurable; non-UK dataset queries are weak tests until then |
 | **Agency end-clients are not identified; agency detection is name-based** | FreeHire lists the posting agency as the company, and only known names and patterns ("recruit…", "staffing", Hays, Ocho...) are recognised | Recognised agencies are not researched and letters address the consultant. An unlisted recruiter (e.g. Intec Select) is treated as a normal company. Future: use posting language ("our client") as a second signal and extract the real company |
 | **Research is search snippets only** | Cheap and fast; no page fetching or summarisation | Snippets are filtered for ads and capped at 3 results |
@@ -277,11 +299,10 @@ These are honest, deliberate scope boundaries — not bugs.
 
 ## 🔮 Next Iteration Roadmap
 
-1. **Cost measurement & model routing** (Day 19) — Log token usage per run and route simple tasks to cheaper models.
-2. **Failure mode documentation** (Day 20) — Document known failure frequencies and mitigation strategies based on real run data.
-3. **Week 3 checkpoint report** (Day 21) — Pass rates, cost per run and latency from a full live eval.
-4. **End-client extraction** — Parse job descriptions to identify the actual hiring company when the listing is from a recruitment agency.
-5. **Human-in-the-loop approval** — Pause before generating cover letters so the candidate can approve the selected jobs.
+1. **Failure mode documentation** (Day 20) — Document known failure frequencies and mitigation strategies based on real run data.
+2. **Week 3 checkpoint report** (Day 21) — Pass rates, cost per run and latency from a full live eval.
+3. **End-client extraction and agency-language signal** (Day 20) — Parse job descriptions to identify the actual hiring company when the listing is from a recruitment agency.
+4. **Human-in-the-loop approval** — Pause before generating cover letters so the candidate can approve the selected jobs.
 
 ---
 

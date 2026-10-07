@@ -192,6 +192,21 @@ def check_grounding(result: RunResult, query: GoldenQuery) -> CheckResult:
                             "{n} applications use only numbers from the CV, posting or research")
 
 
+# ── cost instrumentation ──
+
+def check_usage_recorded(result: RunResult, query: GoldenQuery) -> CheckResult:
+    """Every application came from at least one LLM call, so usage must have been recorded.
+
+    Guards the cost numbers: if instrumentation silently stops recording, costs would read as zero.
+    """
+    if not result.applications:
+        return CheckResult(name="usage_recorded", passed=True, skipped=True, detail="no applications")
+    calls = (result.usage or {}).get("calls", 0)
+    ok = calls >= len(result.applications)
+    return CheckResult(name="usage_recorded", passed=ok,
+                       detail=f"{calls} usage records for {len(result.applications)} applications")
+
+
 # ── tools ──
 
 def check_tools(result: RunResult, query: GoldenQuery) -> CheckResult:
@@ -279,7 +294,7 @@ def check_tool_sequence(result: RunResult, query: GoldenQuery) -> CheckResult:
 CHECKS: List[Callable[[RunResult, GoldenQuery], CheckResult]] = [
     check_status, check_min_jobs, check_format, check_addressing, check_grounding,
     check_relevance, check_search_honored, check_tools, check_tool_selection, check_tool_sequence,
-    check_escalation_graceful, check_no_redundant_research,
+    check_escalation_graceful, check_no_redundant_research, check_usage_recorded,
 ]
 
 

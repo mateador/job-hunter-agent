@@ -245,11 +245,12 @@ def test_failed_scored_checks_fail_query_but_not_informational():
 
 
 def test_score_result_runs_all_checks():
-    s = score_result(make_result(jobs=[JOB_PY], applications=[GOOD_APP],
+    s = score_result(make_result(jobs=[JOB_PY], applications=[GOOD_APP], usage={"calls": 1},
                                  tools_called=["search_freehire", "llm_chat"]), make_query())
     assert {c.name for c in s.checks} == {"status", "min_jobs", "format", "addressing", "grounding",
                                           "relevance", "search_honored", "tools", "tool_selection",
-                                          "tool_sequence", "escalation_graceful", "no_redundant_research"}
+                                          "tool_sequence", "escalation_graceful", "no_redundant_research",
+                                          "usage_recorded"}
     assert s.passed
 
 

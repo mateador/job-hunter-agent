@@ -142,6 +142,7 @@ Examples:
     # Run configuration
     parser.add_argument("--max-jobs", type=int, default=10, help="Maximum jobs to process per query")
     parser.add_argument("--model", default="gpt-4o-mini", help="OpenAI model to use")
+    parser.add_argument("--retry-model", help="Model for grounding retries (default: same as --model)")
     parser.add_argument("--verbose", "-v", action="store_true", help="Enable verbose logging")
 
     # Resume configuration
@@ -232,6 +233,7 @@ Examples:
             audit_logger=audit_logger,
             checkpoint_manager=checkpoint_manager,
             model=args.model,
+            retry_model=args.retry_model,
             max_jobs=args.max_jobs,
             cv_text=cv_text,
         )
@@ -260,6 +262,16 @@ Examples:
                 console.print(f"[bold yellow]⚠️  Partial: {apps_count}/{total_jobs} jobs processed, {failed_count} failed[/bold yellow]")
             else:
                 console.print(f"[bold red]❌ Failed: 0/{total_jobs} jobs processed[/bold red]")
+
+            usage = result.get("usage") or {}
+            if usage.get("calls"):
+                unpriced = " (some calls unpriced)" if usage.get("unpriced_calls") else ""
+                console.print(f"[dim]LLM usage: {usage['calls']} calls, {usage['total_tokens']:,} tokens, "
+                              f"estimated cost ${usage['cost_usd']:.4f}{unpriced} at list price[/dim]")
+            flagged = sum(1 for a in result["applications"] if a.warnings)
+            if flagged:
+                console.print(f"[bold yellow]⚠️  {flagged} application(s) contain figures not found in your CV "
+                              f"or the posting: review before sending[/bold yellow]")
 
             console.print(f"[bold]Report: {report_file}[/bold]")
             console.print(f"[bold]Checkpoint: {result['checkpoint_file']}[/bold]")

@@ -1,69 +1,85 @@
 # Job Hunter Agent
 
-30-Day Forward Deployed Software Engineer (FDSE) case study. Goal: a production-ready, observable, resilient AI agent that searches jobs, researches companies, matches a CV, and drafts tailored applications, ending in a defensible engineering case study.
+30-Day Forward Deployed Software Engineer (FDSE) case study. Goal: an observable, resilient AI workflow that searches jobs, researches companies, matches a CV, and drafts tailored applications, ending in a defensible engineering case study. Core value: survives crashes, resumes from checkpoints, delivers partial results when jobs fail, keeps a full audit trail, and is measured by evals.
 
-Core value: survives crashes, resumes cleanly from checkpoints, delivers partial results when individual jobs fail, and keeps a full audit trail of every decision.
+## Where we are (read this first when resuming)
+- **Status:** Day 19 of 30 complete. **Next: Day 20** (failure-mode documentation). Then Day 21 (Week 3 checkpoint eval report), then Week 4 (docs and pitches).
+- **Uncommitted at the time of writing:** the Day 19 work (usage, pricing, routing, compare tool, tests, docs). Run `git status` and `git log --oneline` to see whether it was committed. The user commits; never commit without being asked.
+- **Day 20 scope decided with the user:** document real failure modes and their frequencies from eval/run data, AND implement the agency-language signal (posting phrases like "our client", "the client's office", "on behalf of" as a second agency signal in `research_policy.py`, with scenarios; motivated by "Intec Select Ltd", a recruiter researched as a normal company). FreeHire is also hard-coded to `regions=uk`, so the Lisbon query (edge-04) only tests the empty-result path; decide whether to make regions configurable.
+- **Day 19 left open (needs the user, costs money):** (1) the user must verify `src/job_agent/pricing.json` against https://developers.openai.com/api/docs/pricing and set `"verified": true` (it was fetched through a summarising tool and is flagged unverified in every cost report); (2) the actual model comparison has NOT been run: `python -m evals.compare --models <current>,<cheaper>,<stronger> --limit 6 --max-cost 0.50`. No routing default should change until that data supports it. The user said gpt-4o-mini is currently free for them, so cost figures are list-price estimates, not billing.
+- **Still unproven live:** the runtime grounding guard has only unit tests; in the one live follow-up it never triggered (the model did not fabricate). The earlier real fabrication (niche-02: invented "40%"/"25%" and an Azure-lead claim; CV says Azure foundational) was caught by the eval check.
+- **No full 20-query live baseline exists with the Day 18/19 code.** The recorded baseline (`docs/BASELINE.md`, 19/20) predates the grounding guard, the empty-result fix and cost tracking. Re-run for Day 21: `python -m evals.runner --live --max-jobs 2`.
 
-**Status:** Day 15 of 30 complete. Next: Day 16 (eval harness).
+## How the user wants to work
+- **Plan first.** For each day: inspect the code, present findings and a plan, ask the questions that matter, and wait for "go" before changing code. They validate plans.
+- **Be honest about limits.** Report what is NOT proven (mock vs live, unit-tested vs measured, estimates vs billing). Flag documentation that claims more than the code does.
+- **Confirm before anything that costs money or sends the CV out** (live evals, comparisons). Small, approved probes were fine. Live runs the user triggers themselves are usually run in their own terminal.
+- **The user commits.** Docs and CLAUDE.md are updated as part of each day; keep README/PROGRESS truthful.
 
 ## Stack
-Python 3.10+, OpenAI API (gpt-4o-mini), FreeHire API (job search), DuckDuckGo via the `ddgs` package (company research; import is `from ddgs import DDGS`, NOT `duckduckgo_search`), Pydantic, Rich, tiktoken, JSONL for audit trails and checkpoints, pytest.
+Python 3.10+ (user's terminal; the VS Code sandbox sees 3.13), OpenAI API (default `gpt-4o-mini`), FreeHire API (job search, no key needed), DuckDuckGo via the `ddgs` package (`from ddgs import DDGS`, NOT `duckduckgo_search`), Pydantic, Rich, JSONL for audit trails and checkpoints, pytest. `tiktoken` is declared in pyproject but unused (candidate to remove).
 
 ## Setup and running
-Always use the project venv; system `python3` lacks the dependencies. If the system Python was upgraded the venv breaks; rebuild it from the user's own terminal (the VS Code sandbox sees a different system Python than their terminal).
-
+The user runs everything in their own terminal with the project venv. If the venv breaks after a system Python upgrade, rebuild it from the user's terminal (the sandbox's Python differs, so a venv built there will not work for them; for sandbox testing use a separate scratch venv).
 ```bash
 python3 -m venv --clear .venv && source .venv/bin/activate
-pip install -e . pytest
-export OPENAI_API_KEY=...   # or put it in .env
-```
-
-```bash
-# query-based
-python3 -m src.job_agent.main "python engineer london" --max-jobs 5
-# CV-based (tailored applications)
+pip install -e . pytest          # OPENAI_API_KEY in .env or exported
+python -m pytest tests -q        # 177 tests; use "python -m pytest", bare pytest can resolve to ~/.local
 python3 -m src.job_agent.main "Forward Deployed Engineer" --cv private/alexandre_cv.md --max-jobs 1
-python3 -m src.job_agent.main --cv private/alexandre_cv.md --keywords examples/keywords.json --max-jobs 3
-# options / recovery
-python3 -m src.job_agent.main "query" --cv private/cv.md --verbose
-python3 -m src.job_agent.main --list-interrupted
-python3 -m src.job_agent.main "query" --resume --run-id <RUN_ID>
+python3 -m src.job_agent.main --keywords examples/keywords.json --cv private/alexandre_cv.md
+python3 -m src.job_agent.main "q" --resume --run-id <ID>   # also --list-interrupted, --retry-model, --verbose
 python3 -m src.job_agent.view_trace --narrative
-python -m pytest tests -q   # 50 tests, all passing
+python -m evals.runner                              # MOCK: offline, free, validates the harness only
+python -m evals.runner --scenarios-only             # 14 hand-labelled tool-selection scenarios, offline
+python -m evals.runner --live --max-jobs 2 [--limit N --ids a,b --max-cost 0.50 --yes --retry-model M]
+python -m evals.compare --models a,b[,c] [--mock] [--limit 6 --max-cost 0.50]
 ```
+Tests never touch the network: `tests/conftest.py` stubs `research_company` for every test.
 
-Run tests with `python -m pytest`, not bare `pytest`: a user-level pytest in `~/.local` can shadow the venv's and fail with `No module named 'ddgs'`.
+## Architecture (current code)
+A fixed pipeline, NOT an LLM-driven loop (the Day 1-5 loop, 12 guardrails and tiktoken pruning were removed in the Day 11 checkpointing commit; README/PROGRESS were corrected on Day 18; `prompts.py` SYSTEM_PROMPT is imported but unused).
+`main.py` (CLI) -> `AgentRunner` -> `search_freehire` -> per job: `research_policy.should_research` -> optional `research_company` (DuckDuckGo) -> `_generate_checked` (`application_generator` via `LLMClient`, grounding guard) -> `report_generator` (Markdown in `reports/`).
+Sidecars: `AuditLogger` -> `traces/trace_*.jsonl`; `CheckpointManager` -> `checkpoints/checkpoint_*.jsonl` (checkpointed after search and after every job).
+Modules in `src/job_agent/`: agent_runner, application_generator, audit_logger, checkpoint, config (timeouts: LLM 60s, FreeHire 15s, DDG 10s), failures (8-category taxonomy), grounding, llm_client, main, models, pricing (+pricing.json), prompts, report_generator, research_policy, retry (backoff 1s then 2s, max 3 attempts), routing, tools, usage, view_trace, check_openai.
+Gitignored: `private/` (real CV), `reports/`, `checkpoints/`, `traces/`, `evals/results/`.
 
-## Architecture
-`main.py` (CLI) -> `AgentRunner` (loop controller, checkpoint manager, failure tracking) -> `LLMClient` (OpenAI, retry, timeout) + `tools.py` (FreeHire, DuckDuckGo) -> `ApplicationGenerator` (cover letters, CV bullets) -> `ReportGenerator` (Markdown).
-Sidecars: `AuditLogger` -> `traces/trace_*.jsonl`; `CheckpointManager` -> `checkpoints/checkpoint_*.jsonl`.
+## Behaviours worth knowing
+- **FreeHire:** `search_freehire` uses `/api/v1/agent/jobs/search` (the generic `/api/v1/jobs` silently ignores `q`). `FREEHIRE_*` env vars are read at call time. Only `regions=uk` and `posted_within_days=30` are honoured there (`location`/`country` ignored). The trace logs `search_meta` with `ignored_params`; if the query param is ignored it raises `FreeHireIgnoredParamError`. Sources adzuna/whatjobs-uk truncate descriptions to ~500 chars upstream (no way to get the full text), so "thin description" mostly means "truncated".
+- **Blank query:** rejected by the CLI (`parser.error`) and `AgentRunner.run` (`InvalidQueryError`, before any search).
+- **Research escalation** (`research_policy.should_research`): no company -> skip; agency (name pattern/list: recruit*, staffing, Hays, Ocho, Michael Page, ...) -> skip; company already researched this run -> reuse; description >= 600 chars -> skip; else research. The 600 threshold sits in an empty gap (descriptions are <= 501 or >= 1306), so it is not sensitive. Research failure is logged and degrades to a letter without research. `search_duckduckgo` treats ddgs's "No results found" as an empty list. Ad/tracker URLs are filtered. Decisions are `research_decision` trace events and returned as `research_decisions` (in memory only; not restored on resume).
+- **Grounding guard** (`AgentRunner._generate_checked`): if the CV has figures and the draft states numbers absent from CV, posting and research text (`grounding.py`, shared with evals), regenerate ONCE with a `revision_note` naming them; if still ungrounded keep the application with `Application.warnings` (report shows "Review needed", CLI warns). Numbers only: an invented skill or employer with no figure is NOT caught (possible later: LLM-judge check).
+- **Usage and cost** (Day 19): `LLMClient.usage` (`UsageTracker`) records prompt/completion/cached tokens per SUCCESSFUL call (failed attempts report no usage, so retries are undercounted) and logs `llm_usage`; calls are tagged via `llm_client.tagged(job_id=..., purpose="application"|"grounding_retry")`. `pricing.py` resolves dated snapshot ids to the base model; an unknown model is "unpriced" (excluded and flagged, never guessed). `ModelRouter` uses `--model` for everything, optional `--retry-model` for grounding retries only. `AgentRunner.run` returns `usage`; CLI prints a cost line; the report summary has it.
 
-Key modules in `src/job_agent/`: agent_runner, application_generator, audit_logger, checkpoint, config (timeouts), failures (8-category taxonomy), llm_client, main, models, prompts, report_generator, retry (exponential backoff, max 3), tools, view_trace.
-Other dirs: `tests/`, `evals/` (dataset_schema.py, golden_dataset.json with 20 queries), `docs/` (PROGRESS.md, FAILURE_TAXONOMY.md), `examples/keywords.json`.
-Gitignored runtime/private dirs: `private/` (real CV), `reports/`, `checkpoints/`, `traces/`.
+## Evals (`evals/`)
+- `golden_dataset.json` v1.1 (20 queries: 6 standard, 4 niche, 3 broad, 4 edge, 3 agency; per-query `cv_path`, `relevance_keywords`, `min_jobs`, `expected_tools` = freehire only, `expect_failure`); keywords and `min_jobs` are hand-written guesses.
+- Run-level checks: status, min_jobs, relevance (>=50% of job TITLES match keywords), search_honored, tools (FreeHire required), tool_sequence (search once and first; extra LLM calls explained by grounding retries), tool_selection, escalation_graceful, no_redundant_research, usage_recorded.
+- Per-application checks (query passes only if all applications pass; `score` = share passing): format (3-4 bullets <=300 chars, 3-5 body paragraphs, 150-350 words, no raw JSON/placeholder/fallback text), addressing (names the company, or addressed to a consultant, and references the job title), grounding (numbers only; skipped without CV figures).
+- `tool_scenarios.json` + `scenarios.py`: 14 hand-labelled scenarios run offline against the real AgentRunner (mutation-checked: threshold, agency detection and cache bugs make them fail).
+- Mock mode (default) uses canned jobs, a fake LLM, fake research and synthetic tokens (~4 chars/token); it validates tooling, never the agent. Only `--live` measures the agent.
+- Reports: `evals/results/eval_<mode>_<ts>.md/json`, `compare_<mode>_<ts>.md/json` (gitignored: they contain letters generated from a private CV). Committed record: `docs/BASELINE.md` and `docs/baselines/*.summary.json`.
 
-Timeouts: LLM 60s, FreeHire 15s, DDG 10s.
+## Results so far
+- Live 20-query baseline (`eval_live_20261006_123418`, 34 jobs): 19/20; grounding 91% (niche-02 fabrication); escalation 11/34 jobs researched; mean latency 10.0s/query. Details and limits in `docs/BASELINE.md`.
+- Follow-up live (niche-02, niche-04, agency-02): 3/3; empty-result fix confirmed live; guard did not trigger.
+- Earlier live runs found and led to fixes for: FreeHire ignoring the query, blank-query generating applications for random jobs, "no results" counted as failure.
 
-## Progress
-- Week 1 (Days 1-7): agent loop, FreeHire, DDG research, 12 output guardrails, tiktoken context pruning, tailored CV bullets/cover letters, JSONL audit trail + Markdown report.
-- Week 2 (Days 8-14): failure taxonomy, retry/backoff, timeouts, checkpointing, validated resume, partial completion, recovery demo.
-- Day 15: golden dataset (`evals/golden_dataset.json`, 20 queries with per-query `cv_path`, `relevance_keywords`, `expected_tools`, validated by `evals/dataset_schema.py`), restored `--cv`/`--keywords` flags, fixed OpenAI/httpx2 `process()` kwarg error.
-- Day 16: eval harness in `evals/` (`runner.py`, `scoring.py`, `report.py`, `result_models.py`, `fixtures/mock_jobs.json`). `python -m evals.runner` is mock mode (offline, free; validates the harness only); `--live` hits real FreeHire/OpenAI and asks for confirmation unless `--yes`. Other flags: `--ids`, `--limit`, `--max-jobs`, `--out`. Reports go to gitignored `evals/results/`. Run-level checks: status, min_jobs, relevance (>=50% of job TITLES match keywords), search_honored. Day 17 per-application checks (a query passes only if every application passes; `score` = share passing): `format` (3-4 bullets <=300 chars, 3-5 body paragraphs, 150-350 words, no raw JSON/placeholder/fallback text), `addressing` (letter names the company or is addressed to a consultant, and references the job title), `grounding` (every number in the output must appear in the CV or job posting; numbers-only, so invented employers/skills are NOT caught; skipped without a CV). Tool checks: `tools` (FreeHire required; DuckDuckGo missing is noted, not scored until Day 18) and `tool_sequence` (search once and first; LLM calls match jobs, retries noted not failed). `min_jobs`/`relevance_keywords` values are untuned guesses; adjust after the first live run.
-- Day 16 live-eval finding (fixed): `search_freehire` used the generic `/api/v1/jobs` endpoint, which silently ignores `q` and returns an unfiltered feed (agent produced applications for irrelevant jobs while reporting "completed"). It now defaults to `/api/v1/agent/jobs/search` (no API key needed), reads `FREEHIRE_*` settings from the environment at call time, logs `meta.ignored_params` as a `search_meta` trace event, and raises `FreeHireIgnoredParamError` if the query param is ignored. Only `regions=uk` and `posted_within_days` are honoured filters there; `location`/`country` are ignored (`countries` is the real name).
-- First full live eval (20 queries, 2 jobs each): 18/20. It exposed that a blank query searched an unfiltered feed and generated applications for random jobs; now rejected by the CLI (`parser.error`) and by `AgentRunner.run` (`InvalidQueryError`, raised before any search). Baseline write-up in `docs/` is deferred until after Day 17.
-- Day 17 on the saved 20-query live run: format 100%, grounding 100% (11 CV runs), addressing 2 false positives fixed in the heuristics. Real data has not yet shown a genuine format/grounding failure; the checks are proven only by synthetic bad fixtures in `tests/test_eval_scoring.py`. Consider an `--judge` LLM faithfulness check later (catches invented employers/skills).
-- Day 18: rule-based escalation. `src/job_agent/research_policy.py::should_research` decides per job: no company -> skip; agency (name pattern/list) -> skip; company already researched this run -> reuse; description >= 600 chars -> skip; otherwise research via `tools.research_company` (DuckDuckGo, ad/tracker URLs filtered, top 3 snippets + sources into `CompanyResearch.summary/sources`). Research failure is logged (`research_failed`) and degrades to a letter without research, never failing the job. Every decision is a `research_decision` trace event and is returned as `research_decisions` by `AgentRunner.run` (in-memory only, not checkpointed; the per-run company cache is not restored on resume). The generation prompt now also says to state only company facts found in the posting or research. Evals: `evals/tool_scenarios.json` (14 hand-labelled scenarios, run offline against the real AgentRunner by `evals/scenarios.py`; `python -m evals.runner --scenarios-only` runs just these, free) plus run-level checks `tool_selection`, `escalation_graceful`, `no_redundant_research`; `grounding` also accepts numbers from research text. Dataset `expected_tools` no longer lists duckduckgo (research is per job). `tests/conftest.py` stubs `research_company` for every test (tests must never hit the network).
-- Day 18 follow-ups (from the first full live baseline, 19/20, written up in `docs/BASELINE.md` with a stripped summary in `docs/baselines/`): (1) `search_duckduckgo` treats ddgs's `DDGSException("No results found")` as an empty list, not a failure; (2) runtime grounding guard in `AgentRunner._generate_checked`: if the CV has figures and the draft states numbers absent from CV/posting/research (`src/job_agent/grounding.py`, shared with the evals), regenerate ONCE with a `revision_note` naming them; if still ungrounded keep the application with `Application.warnings` (shown as "Review needed" in the report; trace events `grounding_violation`/`grounding_retry`/`grounding_flagged`); skipped when no CV or the CV has no figures. Evals: `tool_sequence` allows one extra LLM call per `grounding_retries`; report has a "Grounding guard" line. FreeHire descriptions from adzuna/whatjobs-uk are truncated to ~500 chars upstream, so "thin_description" mostly means "truncated"; the 600 threshold sits in an empty gap (502-1300), so it is not sensitive. Follow-up live run (niche-02, niche-04, agency-02; `eval_live_20261006_130312`): 3/3 pass; the empty-result fix is confirmed live (107632 Capital Markets: empty result, 0 failures); the grounding guard did NOT trigger (0/6), so it is only unit-tested, not demonstrated live (the model simply did not fabricate this time). Agency detection is name-based: 'Intec Select Ltd' (a recruiter whose posting says 'the client's office') was researched as a normal company.
-- Known gaps (for later days): README/PROGRESS still describe features that are no longer in `src/` (LLM tool-call loop, 12 guardrails, tiktoken context pruning; `prompts.py` SYSTEM_PROMPT is imported but unused); agency detection is name-pattern only and has no letter-level eval check; FreeHire search is hard-coded to `regions: "uk"`, so non-UK queries (e.g. edge-04 Lisbon) are weak tests (Day 20 failure modes); no full 20-query live baseline exists with the Day 17/18 checks yet.
+## Known gaps
+- Agency detection is name-based only (Day 20 will add posting-language signal); no letter-level agency eval.
+- UK-only search; non-UK dataset queries are weak tests.
+- Grounding covers numbers only; relevance is keyword-on-title; small, noisy live samples (one run, non-deterministic model).
+- `pricing.json` unverified; costs are list-price estimates; failed attempts uncounted.
+- Checkpoints do not store usage, research decisions or the research cache; resumed runs lose those.
+- `tiktoken` dependency unused; `prompts.py` loop prompt unused; README clone URL (`mateador/job-hunter-agent`) not verified.
+- Pagination and cross-run job deduplication are not implemented.
 
 ## Roadmap
-- Week 3 (measure): 16 eval harness (`evals/runner.py`, `scoring.py`, `report.py`), 17 correctness/format evals, 18 tool selection and escalation, 19 cost tracking and model routing, 20 failure-mode frequencies, 21 final eval report.
-- Week 4 (communicate): 22 pain-point doc, 23 architecture doc, 24 iteration story, 25 engineer pitch, 26 VP pitch, 27 case study assembly, 28 final review/GitHub polish.
+- Week 3: 16-19 done; **20 failure modes (+ agency-language signal)**; 21 Week 3 checkpoint report (pass rates, cost per run, latency from a full live run).
+- Week 4: 22 pain-point doc, 23 architecture doc, 24 iteration story (good material: the silent FreeHire bug, the Day 11 feature loss, the blank-query bug), 25 engineer pitch, 26 VP pitch, 27 case study assembly, 28 final review and GitHub polish.
 
 ## Conventions and lessons
-- Preserve all public symbols when replacing files.
-- Test mocks should accept `**kwargs` so they survive signature changes.
-- Keep tests isolated: `sys.modules` pollution in one test can break others.
-- Verify exact dependency versions; environment issues (e.g. httpx2 vs httpx) can masquerade as code bugs.
-- Prefer partial completion over all-or-nothing.
-- Cover letters need human review. Single LLM provider (OpenAI) by design for now.
+- Preserve public symbols when replacing files (the Day 11 rewrite silently dropped features; check git history before assuming a feature exists).
+- Test mocks should accept `**kwargs`. Keep tests offline and isolated. Never let a test reach the network or an LLM.
+- Verify claims against the code and live behaviour (the docs overclaimed for weeks; mock results hid a broken search).
+- Heuristic checks need synthetic bad fixtures AND a replay against real saved data; a test caught a real flaw in a "fix" (consultant detection matched the job title).
+- When a check never fails on real data, say so: it is proven only by synthetic fixtures.
+- Prefer partial completion over all-or-nothing. Cover letters need human review. Single LLM provider (OpenAI) by design for now.

@@ -5,6 +5,7 @@ import logging
 from typing import List, Dict, Any, Optional
 
 from .llm_client import LLMClient
+from .routing import ModelRouter
 from .audit_logger import AuditLogger
 from .checkpoint import CheckpointManager, CheckpointError, CorruptedCheckpointError
 from .tools import search_freehire, search_duckduckgo, research_company
@@ -35,10 +36,12 @@ class AgentRunner:
         model: str = "gpt-4o-mini",
         max_jobs: int = 10,
         cv_text: Optional[str] = None,
+        retry_model: Optional[str] = None,
     ):
         self.audit_logger = audit_logger
         self.checkpoint_manager = checkpoint_manager
-        self.llm_client = LLMClient(audit_logger=audit_logger, model=model)
+        self.llm_client = LLMClient(audit_logger=audit_logger, model=model,
+                                    router=ModelRouter(model, retry_model))
         self.max_jobs = max_jobs
         self.cv_text = cv_text
 
@@ -222,6 +225,7 @@ class AgentRunner:
             "checkpoint_file": str(self.checkpoint_manager.get_checkpoint_path()),
             "status": status,
             "research_decisions": research_decisions,
+            "usage": self.llm_client.usage.summary(),
         }
 
     def _generate_checked(self, job: Job, company_research) -> Application:
@@ -231,14 +235,16 @@ class AgentRunner:
         application is kept but carries a warning, so the report flags it for review.
         """
         def generate(revision_note: Optional[str] = None) -> Application:
-            return generate_application(
-                job=job,
-                llm_client=self.llm_client,
-                audit_logger=self.audit_logger,
-                cv_text=self.cv_text,
-                company_research=company_research,
-                revision_note=revision_note,
-            )
+            purpose = "grounding_retry" if revision_note else "application"
+            with self.llm_client.tagged(job_id=job.id, purpose=purpose):
+                return generate_application(
+                    job=job,
+                    llm_client=self.llm_client,
+                    audit_logger=self.audit_logger,
+                    cv_text=self.cv_text,
+                    company_research=company_research,
+                    revision_note=revision_note,
+                )
 
         app = generate()
         if not extract_numbers(self.cv_text):

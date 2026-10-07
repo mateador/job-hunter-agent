@@ -97,6 +97,12 @@ def generate_report(result: Dict[str, Any]) -> str:
     # Summary
     lines.append("## Summary")
     lines.append("")
+    usage = result.get("usage") or {}
+    if usage.get("calls"):
+        cost = f"${usage['cost_usd']:.4f}" if not usage.get("unpriced_calls") else f"${usage['cost_usd']:.4f}+ (some calls unpriced)"
+        lines.append(f"**LLM usage:** {usage['calls']} calls, {usage['total_tokens']:,} tokens, "
+                     f"estimated cost {cost} at list price (not billing).")
+        lines.append("")
     if status == "completed":
         lines.append("✅ All jobs processed successfully.")
     elif status == "partial":
