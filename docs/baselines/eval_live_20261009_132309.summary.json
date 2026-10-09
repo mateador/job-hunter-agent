@@ -1,0 +1,425 @@
+{
+  "source_run": "eval_live_20261009_132309",
+  "generated": "2026-10-09T13:23:09.011437",
+  "mode": "live",
+  "settings": {
+    "model": "gpt-4o-mini",
+    "max_jobs_per_query": 2,
+    "queries": 20,
+    "golden_dataset_version": "1.1",
+    "research_threshold_chars": 600,
+    "note": "Scored with the checks as they were at run time (18/20). Re-scored afterwards with the corrected addressing check: 19/20 (niche-03 passes; broad-01 still fails on format, 146 words). Prompt at run time still said 'concise' and asked for 220-300 words; letters averaged 173 words."
+  },
+  "summary": {
+    "cost": {
+      "calls": 34,
+      "prompt_tokens": 82536,
+      "completion_tokens": 12056,
+      "cached_tokens": 43008,
+      "total_tokens": 94592,
+      "cost_usd": 0.0163884,
+      "unpriced_calls": 0,
+      "synthetic": false,
+      "cost_per_application_usd": 0.0004820117647058824,
+      "cost_per_query_usd": 0.0008194200000000001,
+      "by_purpose": {
+        "application": {
+          "calls": 34,
+          "tokens": 94592,
+          "cost_usd": 0.0163884
+        }
+      },
+      "by_model": {
+        "gpt-4o-mini-2024-07-18": {
+          "calls": 34,
+          "tokens": 94592,
+          "cost_usd": 0.0163884
+        }
+      }
+    },
+    "grounding_guard": {
+      "applications": 34,
+      "retries": 0,
+      "flagged": 0
+    },
+    "structure_guard": {
+      "applications": 34,
+      "retries": 0,
+      "flagged": 0
+    },
+    "escalation": {
+      "jobs": 34,
+      "researched": 8,
+      "failures": 0,
+      "by_reason": {
+        "agency": 5,
+        "already_researched": 1,
+        "rich_description": 20,
+        "thin_description": 8
+      }
+    },
+    "total": 20,
+    "passed": 18,
+    "pass_rate": 0.9,
+    "by_category": {
+      "agency": {
+        "n": 3,
+        "pass_rate": 1.0
+      },
+      "broad": {
+        "n": 3,
+        "pass_rate": 0.6666666666666666
+      },
+      "edge_case": {
+        "n": 4,
+        "pass_rate": 1.0
+      },
+      "niche": {
+        "n": 4,
+        "pass_rate": 0.75
+      },
+      "standard": {
+        "n": 6,
+        "pass_rate": 1.0
+      }
+    },
+    "by_check": {
+      "addressing": {
+        "n": 17,
+        "pass_rate": 0.8823529411764706,
+        "mean_score": 0.9411764705882353
+      },
+      "format": {
+        "n": 17,
+        "pass_rate": 0.9411764705882353,
+        "mean_score": 0.9705882352941176
+      },
+      "grounding": {
+        "n": 11,
+        "pass_rate": 1.0,
+        "mean_score": 1.0
+      },
+      "min_jobs": {
+        "n": 19,
+        "pass_rate": 1.0,
+        "mean_score": null
+      },
+      "no_redundant_research": {
+        "n": 7,
+        "pass_rate": 1.0,
+        "mean_score": null
+      },
+      "relevance": {
+        "n": 16,
+        "pass_rate": 1.0,
+        "mean_score": 0.9375
+      },
+      "search_honored": {
+        "n": 20,
+        "pass_rate": 1.0,
+        "mean_score": null
+      },
+      "status": {
+        "n": 20,
+        "pass_rate": 1.0,
+        "mean_score": null
+      },
+      "tool_selection": {
+        "n": 17,
+        "pass_rate": 1.0,
+        "mean_score": null
+      },
+      "tool_sequence": {
+        "n": 19,
+        "pass_rate": 1.0,
+        "mean_score": null
+      },
+      "tools": {
+        "n": 20,
+        "pass_rate": 1.0,
+        "mean_score": null
+      },
+      "usage_recorded": {
+        "n": 17,
+        "pass_rate": 1.0,
+        "mean_score": null
+      }
+    },
+    "latency_mean_s": 8.360005040001123,
+    "latency_max_s": 12.713729101000354
+  },
+  "scenarios": [
+    {
+      "id": "rich-description",
+      "passed": true
+    },
+    {
+      "id": "thin-description",
+      "passed": true
+    },
+    {
+      "id": "boundary-599",
+      "passed": true
+    },
+    {
+      "id": "boundary-600",
+      "passed": true
+    },
+    {
+      "id": "missing-description",
+      "passed": true
+    },
+    {
+      "id": "missing-company",
+      "passed": true
+    },
+    {
+      "id": "blank-company",
+      "passed": true
+    },
+    {
+      "id": "named-agency",
+      "passed": true
+    },
+    {
+      "id": "generic-agency",
+      "passed": true
+    },
+    {
+      "id": "duplicate-company",
+      "passed": true
+    },
+    {
+      "id": "duplicate-company-case",
+      "passed": true
+    },
+    {
+      "id": "different-companies",
+      "passed": true
+    },
+    {
+      "id": "research-fails",
+      "passed": true
+    },
+    {
+      "id": "research-empty",
+      "passed": true
+    },
+    {
+      "id": "agency-language-thin",
+      "passed": true
+    },
+    {
+      "id": "agency-language-rich",
+      "passed": true
+    },
+    {
+      "id": "plural-clients-not-agency",
+      "passed": true
+    },
+    {
+      "id": "client-success-not-agency",
+      "passed": true
+    },
+    {
+      "id": "on-behalf-of-leadership-not-agency",
+      "passed": true
+    }
+  ],
+  "queries": [
+    {
+      "id": "std-01",
+      "category": "standard",
+      "query": "Forward Deployed Engineer",
+      "passed": true,
+      "jobs": 2,
+      "latency_s": 11.81,
+      "failed_checks": []
+    },
+    {
+      "id": "std-02",
+      "category": "standard",
+      "query": "python engineer london",
+      "passed": true,
+      "jobs": 2,
+      "latency_s": 11.6,
+      "failed_checks": []
+    },
+    {
+      "id": "std-03",
+      "category": "standard",
+      "query": "backend engineer",
+      "passed": true,
+      "jobs": 2,
+      "latency_s": 10.92,
+      "failed_checks": []
+    },
+    {
+      "id": "std-04",
+      "category": "standard",
+      "query": "solutions engineer",
+      "passed": true,
+      "jobs": 2,
+      "latency_s": 8.8,
+      "failed_checks": []
+    },
+    {
+      "id": "std-05",
+      "category": "standard",
+      "query": "AI engineer",
+      "passed": true,
+      "jobs": 2,
+      "latency_s": 9.92,
+      "failed_checks": []
+    },
+    {
+      "id": "std-06",
+      "category": "standard",
+      "query": "data engineer",
+      "passed": true,
+      "jobs": 2,
+      "latency_s": 9.18,
+      "failed_checks": []
+    },
+    {
+      "id": "niche-01",
+      "category": "niche",
+      "query": "LLM evaluation engineer",
+      "passed": true,
+      "jobs": 2,
+      "latency_s": 8.37,
+      "failed_checks": []
+    },
+    {
+      "id": "niche-02",
+      "category": "niche",
+      "query": "agent infrastructure engineer",
+      "passed": true,
+      "jobs": 2,
+      "latency_s": 10.42,
+      "failed_checks": []
+    },
+    {
+      "id": "niche-03",
+      "category": "niche",
+      "query": "applied AI engineer healthcare",
+      "passed": false,
+      "jobs": 2,
+      "latency_s": 8.67,
+      "failed_checks": [
+        {
+          "check": "addressing",
+          "detail": "qa-engineer-foundationhealthca: company 'foundationhealthcareers' not mentioned"
+        }
+      ]
+    },
+    {
+      "id": "niche-04",
+      "category": "niche",
+      "query": "customer engineer observability",
+      "passed": true,
+      "jobs": 2,
+      "latency_s": 10.16,
+      "failed_checks": []
+    },
+    {
+      "id": "broad-01",
+      "category": "broad",
+      "query": "software engineer",
+      "passed": false,
+      "jobs": 2,
+      "latency_s": 8.19,
+      "failed_checks": [
+        {
+          "check": "format",
+          "detail": "software-engineer-treq-h5xjfvb: 146 words (want 150-350)"
+        },
+        {
+          "check": "addressing",
+          "detail": "software-engineer-eden-scott-2: company 'eden' not mentioned"
+        }
+      ]
+    },
+    {
+      "id": "broad-02",
+      "category": "broad",
+      "query": "engineer remote",
+      "passed": true,
+      "jobs": 2,
+      "latency_s": 9.01,
+      "failed_checks": []
+    },
+    {
+      "id": "broad-03",
+      "category": "broad",
+      "query": "developer",
+      "passed": true,
+      "jobs": 2,
+      "latency_s": 7.68,
+      "failed_checks": []
+    },
+    {
+      "id": "edge-01",
+      "category": "edge_case",
+      "query": "qzxv wplk jhgf",
+      "passed": true,
+      "jobs": 0,
+      "latency_s": 0.51,
+      "failed_checks": []
+    },
+    {
+      "id": "edge-02",
+      "category": "edge_case",
+      "query": " ",
+      "passed": true,
+      "jobs": 0,
+      "latency_s": 0.0,
+      "failed_checks": []
+    },
+    {
+      "id": "edge-03",
+      "category": "edge_case",
+      "query": "senior software engineer distributed systems distributed systems distributed systems distributed systems distributed systems distributed systems distributed systems distributed systems distributed systems distributed systems distributed systems distributed systems distributed systems distributed systems distributed systems distributed systems distributed systems distributed systems distributed systems distributed systems ",
+      "passed": true,
+      "jobs": 2,
+      "latency_s": 9.72,
+      "failed_checks": []
+    },
+    {
+      "id": "edge-04",
+      "category": "edge_case",
+      "query": "engenheiro de software Lisboa",
+      "passed": true,
+      "jobs": 0,
+      "latency_s": 0.21,
+      "failed_checks": []
+    },
+    {
+      "id": "agency-01",
+      "category": "agency",
+      "query": "recruitment consultant python",
+      "passed": true,
+      "jobs": 2,
+      "latency_s": 10.12,
+      "failed_checks": []
+    },
+    {
+      "id": "agency-02",
+      "category": "agency",
+      "query": "contract python developer",
+      "passed": true,
+      "jobs": 2,
+      "latency_s": 12.71,
+      "failed_checks": []
+    },
+    {
+      "id": "agency-03",
+      "category": "agency",
+      "query": "software engineer via staffing agency",
+      "passed": true,
+      "jobs": 2,
+      "latency_s": 9.21,
+      "failed_checks": []
+    }
+  ]
+}

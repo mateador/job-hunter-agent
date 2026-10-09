@@ -22,7 +22,7 @@ def logger(tmp_path):
 @pytest.fixture(autouse=True)
 def clean_env(monkeypatch):
     for k in ("FREEHIRE_SEARCH_URL", "FREEHIRE_QUERY_PARAM", "FREEHIRE_LIMIT_PARAM",
-              "FREEHIRE_DESCRIPTION_FORMAT"):
+              "FREEHIRE_DESCRIPTION_FORMAT", "FREEHIRE_REGIONS"):
         monkeypatch.delenv(k, raising=False)
 
 
@@ -35,6 +35,13 @@ def test_defaults_to_agent_endpoint(logger):
     assert args[0] == FREEHIRE_BASE_URL
     assert kwargs["params"]["q"] == "python engineer" and kwargs["params"]["limit"] == 3
     assert kwargs["params"]["regions"] == "uk"
+
+
+def test_regions_env_override(logger, monkeypatch):
+    monkeypatch.setenv("FREEHIRE_REGIONS", "eu")
+    with patch("src.job_agent.tools.requests.get", return_value=_response({"data": [], "meta": {}})) as get:
+        search_freehire("x", limit=2, audit_logger=logger)
+    assert get.call_args[1]["params"]["regions"] == "eu"
 
 
 def test_env_overrides_url_and_param_names(logger, monkeypatch):
@@ -63,3 +70,22 @@ def test_other_ignored_params_are_logged_but_allowed(logger):
         assert search_freehire("python", audit_logger=logger) == [{"id": "1"}]
     trace = logger.trace_file.read_text()
     assert '"search_meta"' in trace and "location" in trace
+
+
+def _rate_limited(status):
+    import requests
+    real = requests.Response()
+    real.status_code = status
+    resp = MagicMock()
+    resp.raise_for_status.side_effect = requests.HTTPError(response=real)
+    return resp
+
+
+@pytest.mark.parametrize("status", [429, 500, 504])
+def test_transient_http_errors_are_retried(logger, status):
+    good = _response({"data": [{"id": "1"}], "meta": {}})
+    with patch("src.job_agent.tools.requests.get", side_effect=[_rate_limited(status), good]) as get, \
+            patch("src.job_agent.retry.time.sleep"):
+        jobs = search_freehire("python", limit=10, audit_logger=logger)
+    assert jobs == [{"id": "1"}] and get.call_count == 2
+    assert get.call_args_list[1][1]["params"]["limit"] == 10  # RETRY_SAME: same request, no shrinking

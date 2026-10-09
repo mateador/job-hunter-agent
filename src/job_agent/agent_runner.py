@@ -14,9 +14,15 @@ from .models import Job, Application, FailedJob
 from .prompts import SYSTEM_PROMPT
 from .application_generator import generate_application
 from .failures import classify_exception
+from .format_rules import application_defects
 from .grounding import extract_numbers, ungrounded_numbers
 
 logger = logging.getLogger(__name__)
+
+
+def _sentence(text: str) -> str:
+    """Upper-case the first letter only (str.capitalize would turn "CV" into "cv")."""
+    return text[:1].upper() + text[1:]
 
 
 class ResumeError(Exception):
@@ -37,11 +43,13 @@ class AgentRunner:
         max_jobs: int = 10,
         cv_text: Optional[str] = None,
         retry_model: Optional[str] = None,
+        reasoning_effort: Optional[str] = None,
     ):
         self.audit_logger = audit_logger
         self.checkpoint_manager = checkpoint_manager
         self.llm_client = LLMClient(audit_logger=audit_logger, model=model,
-                                    router=ModelRouter(model, retry_model))
+                                    router=ModelRouter(model, retry_model),
+                                    reasoning_effort=reasoning_effort)
         self.max_jobs = max_jobs
         self.cv_text = cv_text
 
@@ -229,13 +237,17 @@ class AgentRunner:
         }
 
     def _generate_checked(self, job: Job, company_research) -> Application:
-        """Generate an application, regenerating once if it states figures nobody supplied.
+        """Generate an application, with two one-shot repairs.
 
-        Numbers must appear in the CV, the posting or the research. On a second violation the
-        application is kept but carries a warning, so the report flags it for review.
+        Structure: a draft with no CV bullets, an empty letter or a raw-JSON/placeholder letter is
+        regenerated once; if still defective it is kept with a warning.
+        Grounding: figures must appear in the CV, the posting or the research. A draft stating
+        others is regenerated once; on a second violation it is kept with a warning, so the report
+        flags it for review.
+        At most three model calls per job (draft, structure retry, grounding retry).
         """
-        def generate(revision_note: Optional[str] = None) -> Application:
-            purpose = "grounding_retry" if revision_note else "application"
+        def generate(revision_note: Optional[str] = None, purpose: Optional[str] = None) -> Application:
+            purpose = purpose or ("grounding_retry" if revision_note else "application")
             with self.llm_client.tagged(job_id=job.id, purpose=purpose):
                 return generate_application(
                     job=job,
@@ -246,7 +258,7 @@ class AgentRunner:
                     revision_note=revision_note,
                 )
 
-        app = generate()
+        app = self._repair_structure(job, generate(), generate)
         if not extract_numbers(self.cv_text):
             return app  # nothing to ground against (no CV, or a CV without figures)
 
@@ -270,6 +282,8 @@ class AgentRunner:
         )
         try:
             retry_app = generate(note)
+            for problem in application_defects(retry_app.cv_bullets, retry_app.cover_letter):
+                retry_app.warnings.append(f"{_sentence(problem)}. Check before sending.")
         except Exception as e:  # keep the first draft rather than losing the job
             logger.warning(f"Regeneration failed for {job.id}: {e}")
             app.warnings.append(
@@ -286,6 +300,32 @@ class AgentRunner:
             retry_app.warnings.append(
                 f"Figures not found in your CV or the posting: {', '.join(bad)}. Check before sending."
             )
+        return retry_app
+
+    def _repair_structure(self, job: Job, app: Application, generate) -> Application:
+        """Regenerate once if the draft is unusable (no bullets, empty or raw-JSON letter)."""
+        defects = application_defects(app.cv_bullets, app.cover_letter)
+        if not defects:
+            return app
+        self.audit_logger.log_event(event_type="structure_violation", job_id=job.id, defects=defects, attempt=1)
+        self.audit_logger.log_event(event_type="structure_retry", job_id=job.id)
+        logger.warning(f"Unusable draft for {job.id} ({', '.join(defects)}); regenerating once")
+        note = (
+            f"Your previous draft was unusable: {', '.join(defects)}. Return valid JSON with a "
+            "non-empty \"tailored_cv_bullets\" list and a complete \"cover_letter\" string."
+        )
+        try:
+            retry_app = generate(note, "structure_retry")
+        except Exception as e:  # keep the first draft rather than losing the job
+            logger.warning(f"Structure regeneration failed for {job.id}: {e}")
+            app.warnings.append(f"{_sentence(', '.join(defects))}. Regeneration failed, so check before sending.")
+            self.audit_logger.log_event(event_type="structure_flagged", job_id=job.id, defects=defects)
+            return app
+        defects = application_defects(retry_app.cv_bullets, retry_app.cover_letter)
+        if defects:
+            self.audit_logger.log_event(event_type="structure_violation", job_id=job.id, defects=defects, attempt=2)
+            self.audit_logger.log_event(event_type="structure_flagged", job_id=job.id, defects=defects)
+            retry_app.warnings.append(f"{_sentence(', '.join(defects))}. Check before sending.")
         return retry_app
 
     def _maybe_research(

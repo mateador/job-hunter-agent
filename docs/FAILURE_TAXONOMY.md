@@ -1,159 +1,139 @@
-# Failure Taxonomy
+# Failure Modes and Taxonomy
 
-Every failure in this system is classified into one of eight categories.
-Each category has a defined retry policy and recovery path.
+What goes wrong in this system, how it is detected, what it does about it, and what the
+evidence is. Rewritten on Day 20: the Day 8 version described a design (JSON repair loop,
+context pruner, research budget) that no longer exists, so it contradicted the code.
 
-This document is the single source of truth for failure handling.
-Code in `src/job_agent/failures.py` implements this taxonomy.
+Code: `src/job_agent/failures.py` (classification), `retry.py` (retry), `agent_runner.py`
+(per-job isolation, grounding guard, research degradation), `checkpoint.py` (recovery).
 
----
+## How to read this
 
-## Categories
+Every claim carries an evidence label:
 
-### 1. MISSING_DATA
+| Label | Meaning |
+|---|---|
+| **Live** | Seen in a real run against the live APIs |
+| **Dev** | Seen once in development traces; cause not fully recorded |
+| **Unit** | Behaviour covered by offline tests only; never triggered organically |
+| **None** | Not observed; the handling is design intent |
 
-**Definition:** A required input or expected data field is empty, None, or absent.
+### What data exists (and its limits)
 
-**Examples:**
-- CV text is empty or too short
-- Keywords list is empty
-- FreeHire API returns zero jobs for the query
-- DuckDuckGo returns no results for a company
-- A job object lacks a `company` or `position` field
+- 83 trace files: 30 in `traces/` (development, Sep 23 to Oct 2) and 53 from the live eval runs of Oct 6.
+- The live eval era is clean: 53 FreeHire searches and 98 LLM calls all succeeded on the first attempt. 15 of 17 DuckDuckGo lookups succeeded; the 2 "failures" were "No results found", since reclassified as empty results. **The retry path has never been exercised by an organic failure in the live era.**
+- The only large failure cluster is development: **52 `job_failed` events reading "Connection error."** across 26 sessions on 2026-09-23 and 2026-10-02. 39 were classified `UNKNOWN` and 13 `TIMEOUT` (the Day 15 change made dropped connections a timeout). The cause (network down, or a deliberate fault test) is not recorded.
+- Other `job_failed` events: 3 `Job` validation errors (missing `id`, first session) and 1 test-mock bug (`process() takes no keyword arguments`, Oct 2).
+- So the system has **no meaningful organic failure frequencies**. Most real problems were found by evals or by reading output, not by exceptions (see "Silent failures" below). One 20-query baseline (34 jobs) is the only quality sample.
 
-**Retry Policy:** `RETRY_MODIFIED` — retry with different parameters if possible (e.g., broader keywords). If the input itself is bad, `NOT_RETRYABLE`.
+## Part 1: Exceptions (classified and handled)
 
-**Recovery:** Log the specific missing field. If input validation failed, stop. If a tool returned empty, the agent may try a modified query.
+### What the classifier actually produces
 
----
+The taxonomy has 8 categories. `classify_exception` emits only some of them:
 
-### 2. MALFORMED_RESPONSE
+| Category | Emitted today by | Retry policy (as implemented) |
+|---|---|---|
+| `TIMEOUT` | `TimeoutError`, `requests.Timeout`, `openai.APITimeoutError`, `openai.APIConnectionError`, HTTP 408 | `RETRY_SAME`: up to 3 attempts, backoff 1s then 2s |
+| `DEAD_API` | HTTP 429/500/502/503/504, `requests.ConnectionError`, `openai.RateLimitError`, `openai.InternalServerError` | `RETRY_SAME`, as above |
+| `AUTH_ERROR` | HTTP 401/403, `openai.AuthenticationError`, `PermissionDeniedError`, `RateLimitError` with `insufficient_quota` | `NOT_RETRYABLE` (quota: `MANUAL_INTERVENTION`), fails immediately |
+| `MALFORMED_RESPONSE` | HTTP 400 (not retried); non-JSON body (retried like `RETRY_SAME`) | see left |
+| `CONTEXT_OVERFLOW` | OpenAI error containing `context_length_exceeded` | `RETRY_MODIFIED`: one retry with the message history halved |
+| `UNKNOWN` | everything else (e.g. HTTP 404, `ValueError`) | `NOT_RETRYABLE` |
+| `MISSING_DATA`, `PARTIAL_COMPLETION`, `GUARDRAIL_TRIGGERED` | **nothing** (defined, never emitted) | n/a |
 
-**Definition:** A response was received but does not match the expected schema or format.
+The three unused categories are aspirational. Their situations are handled (see Parts 2 and 3) but not
+labelled with the category. `failures.py` was left unchanged for that reason.
 
-**Examples:**
-- LLM returns text that cannot be parsed as JSON
-- LLM returns `tool_arguments` as a list instead of a dict
-- LLM omits a required field in the final answer
-- FreeHire returns valid JSON but with unexpected nesting
+### Bug found and fixed on Day 20
 
-**Retry Policy:** `RETRY_SAME` — feed the error back to the LLM for self-correction (JSON repair loop). For tool responses, `RETRY_MODIFIED`.
+`classify_exception` tested `if exception.response`, but a `requests.Response` with a 4xx or 5xx status is
+**falsy**. Every real HTTP error therefore lost its status code and fell through to `UNKNOWN` /
+`NOT_RETRYABLE`. The 401/403, 502/503 and 400 branches could not run on real responses, and a 503 from
+FreeHire was never retried. Nothing tested HTTP classification, so nothing noticed. Fixed with
+`is not None`; `tests/test_failures.py` uses real `Response` objects and fails without the fix.
+Evidence: **Unit** (found by inspection, not by a live failure).
 
-**Recovery:** The JSON repair loop handles LLM malformation. For tool malformation, log the raw response and attempt normalisation.
+### Retry gaps closed on Day 20
 
----
+Before Day 20, FreeHire 429/500/504, `requests.ConnectionError`, `openai.RateLimitError`, OpenAI 5xx and
+non-JSON bodies were all `UNKNOWN` / not retried (verified by running each exception through the classifier).
+They are now retried (tests in `tests/test_failures.py`, plus an end-to-end retry through `search_freehire`).
+Evidence: **Unit** only; none of these errors occurred in the live runs.
 
-### 3. DEAD_API
+Limits of the new handling:
+- Backoff is 1s then 2s. That is short for a real rate limit, and `Retry-After` is not read, so a sustained 429 will still fail the job after 3 attempts.
+- `insufficient_quota` also arrives as a 429, so it is checked first and is not retried.
+- The OpenAI client is built with `max_retries=0`, so only this retry layer applies (no double retrying).
+- The retry only wraps the FreeHire and LLM calls. A failed job is still not retried on `--resume`.
 
-**Definition:** An external service is unreachable, returning errors, or rate-limiting.
+### Failure catalogue
 
-**Examples:**
-- FreeHire returns HTTP 500 or 502
-- FreeHire returns HTTP 429 (rate limited)
-- DuckDuckGo blocks the request
-- DNS resolution failure
-- Connection refused
+| # | Failure | Detection | Handling | Evidence |
+|---|---|---|---|---|
+| E1 | LLM unreachable / timeout (60s) | `openai` exceptions -> `TIMEOUT` | 3 attempts with backoff; if all fail, the **job** fails and is recorded in `failed_jobs`; other jobs continue; run ends `partial` (or `failed` if none succeeded) | Dev: 52 events ("Connection error."); **Live: none** |
+| E2 | FreeHire unreachable, rate limited or 5xx | `requests` exceptions | 429/5xx/connection/timeout: 3 attempts with backoff. 400/401/403/404: fail at once. If search fails, the run fails with nothing to salvage | Unit; none observed |
+| E3 | OpenAI auth failure | `AuthenticationError` -> `AUTH_ERROR` | Fails immediately, no retry. The CLI prints the error and a resume hint | Unit; none observed |
+| E4 | Context too long | `context_length_exceeded` | One retry with history halved. A single prompt is one system plus one user message, so halving cannot shrink it: effectively unreachable | Unit; none; likely dead code |
+| E5 | Job missing `id` or invalid (`Job` validation) | Pydantic `ValidationError` -> `UNKNOWN` | Job recorded as failed, run continues | Dev: 3 events |
+| E6 | Company research fails or is empty | DuckDuckGo exception | Logged as `research_failed`, letter generated **without** research (never fails the job). "No results found" is an empty result, not a failure | **Live**: 2 of 17 lookups were empty, 0 real failures |
+| E7 | Process killed (Ctrl-C, crash) | n/a | Checkpoint written after search and after every job; `--resume --run-id` continues. Ctrl-C prints the resume command | Unit; manual demo (`test_recovery_demo`) |
+| E8 | Corrupted or missing checkpoint on resume | `CorruptedCheckpointError`, `ResumeError` | `resume_failed` event and a clear CLI error, exit 1; no silent restart | Unit |
+| E9 | Blank query | CLI `parser.error`; `InvalidQueryError` before any search | Rejected, no API call | **Live**: caused the original bug (see S2); now Unit |
 
-**Retry Policy:** `RETRY_SAME` with exponential backoff (Day 9). Bounded to 3 attempts.
+Gaps in recovery:
 
-**Recovery:** If all retries fail, mark the tool call as failed and let the agent decide whether to proceed without the data or stop.
+- **`--resume` does not retry failed jobs.** A failed job is added to `jobs_processed`, so a resumed run skips it. To retry E1 failures you must start a new run.
+- **No cross-run recovery of partial research.** Checkpoints do not store usage, research decisions or the research cache, so a resumed run loses them (cost and escalation figures are then incomplete).
+- **Failed LLM attempts report no usage**, so retries are undercounted in cost figures.
 
----
+## Part 2: Silent failures (no exception, wrong output)
 
-### 4. TIMEOUT
+These matter more than Part 1: none raises an error, and each was found by an eval or by reading output.
 
-**Definition:** An operation exceeded its allocated time budget.
+| # | Failure | Detection | Handling | Evidence |
+|---|---|---|---|---|
+| S1 | **FreeHire silently ignores the query** (generic endpoint returned unrelated jobs) | `search_meta.ignored_params` in the response; eval `search_honored` and `relevance` | Switched to the agent search endpoint; `FreeHireIgnoredParamError` if the query param is ever ignored again | **Live**: found in the first live run |
+| S2 | **Blank query generated applications for random jobs** | Reading output | Rejected in CLI and `AgentRunner.run` | **Live**: found once |
+| S3 | **Fabricated figures** ("reduced deployment times by 40%", "25%") plus an unsupported Azure-lead claim | Eval `grounding` check; runtime guard regenerates once, then flags "Review needed" | Guard: Unit only | **Live**: 1 query of 20 (niche-02), 1 of 34 jobs; guard never triggered live |
+| S4 | **Invented skill, employer or claim with no number** | Not detected | None. The grounding check covers numbers only | Known gap; the Azure claim above was caught only because it came with figures |
+| S5 | **Agency treated as an employer.** Letter is addressed to a recruiter, which is researched for nothing | `research_policy`: company-name pattern, plus (Day 20) posting language such as "our client" or "the client's office" | Skipped (`agency` / `agency_posting`). The letter is still generated; no letter-level agency check exists | **Live**: 6 of 34 jobs flagged by name; "Intec Select Ltd" slipped through |
+| S6 | **Truncated postings.** Two aggregator sources cut descriptions to about 500 characters | Description length | Triggers company research (cannot recover the missing role detail) | **Live**: about two thirds of sampled descriptions |
+| S7 | **Search returns zero jobs** | `jobs_found == 0` | Reported as an empty result, not a failure | **Live** (Lisbon query) |
+| S8 | **Non-UK queries are not searched at all.** `regions` was hard-coded to `uk` | None | Day 20: `FREEHIRE_REGIONS` env var (default `uk`). Whether FreeHire accepts other values is unverified, so non-UK behaviour is untested | Known limit |
+| S9 | **Model writes a letter that fails format/addressing** (bullets, length, company name, raw JSON, placeholder text) | Eval `format` and `addressing` checks | Length: the prompt now states the limits (Day 20); eval only. Unusable output: see S11 | **Live**: 17 of 17 evaluated passed in the baseline; in the Day 19 comparison `gpt-5-nano` and `gpt-5.4` failed 4 of 12 applications each on length limits the prompt had not stated (`docs/MODEL_COMPARISON.md`) |
+| S11 | **Unusable output: no CV bullets, empty letter, raw JSON or placeholder as the letter.** `application_generator` used to turn missing bullets into `[]` silently | `format_rules.application_defects` at runtime | One regeneration (`structure_retry`), then kept with a "Review needed" warning. A grounding retry that loses its bullets is warned about, not retried (at most 3 calls per job) | **Live**: 1 of 106 saved applications (`gpt-5.4`, empty bullets). Guard: Unit only, never triggered live |
+| S10 | **Relevance drift** (loosely related job accepted) | Keyword match on job titles | Eval only | Known limit; keywords are hand-written guesses |
 
-**Examples:**
-- LLM call exceeds 60 seconds
-- HTTP request to FreeHire exceeds 20 seconds
-- DuckDuckGo search exceeds 15 seconds
+### Agency-language signal (Day 20)
 
-**Retry Policy:** `RETRY_SAME` with backoff. Bounded to 2 attempts.
+Added as a second agency check in `research_policy.py`, run after the name check and before the
+"already researched" and "rich description" rules. It matches singular "our/my ... client",
+"the client's office/site/premises", "on behalf of our client", and "acting as an employment
+agency/business". It deliberately does not match "our clients", "Client Success Team", "client projects" or
+"on behalf of senior leadership".
 
-**Recovery:** Enforce hard timeouts on every external call (Day 10). Log the timeout duration and threshold.
+Replay over the 112 distinct job postings in saved data: 7 companies flagged. Three were already caught by
+name (GCS Recruitment, Ocho, Ocho People); **four were not** (Huxley Associates, Intec Select, SThree UK,
+remotestar-team). No false positives among the other 105 postings, which include many "our clients" and
+"client" uses. Known miss: Talent International UK, whose posting says "a leading technology consultancy"
+without "our client". The pattern was tuned on these same 112 postings, so the zero-false-positive result
+is a fit to this sample, not an out-of-sample rate. Treat it as: catches the common recruiter boilerplate;
+will miss postings that avoid it and may flag an employer that happens to write "our client".
 
----
+## Part 3: Design stance
 
-### 5. PARTIAL_COMPLETION
+1. **Isolate the job.** One job failing never stops the run; every outcome is recorded with a category.
+2. **Optional steps degrade.** Research failing means a letter without research, never a failed job.
+3. **Checkpoint after every unit of work**, so a crash loses at most one job.
+4. **Bounded retries only**: 3 attempts, 1s then 2s backoff; `RETRY_MODIFIED` retries once.
+5. **Partial results are the product**: `completed`, `partial` and `failed` are distinct end states.
+6. **Do not guess**: unpriced models are excluded and flagged; ungrounded figures are flagged, not hidden.
 
-**Definition:** Some steps succeeded and some failed. The system has useful partial results.
+## What is not proven
 
-**Examples:**
-- Job 1 application generated successfully, Job 2 generation failed
-- FreeHire search succeeded, DuckDuckGo research failed
-- Cover letter generated, tailored CV bullets failed
-
-**Retry Policy:** `RETRY_MODIFIED` — retry only the failed sub-step, not the entire run.
-
-**Recovery:** Checkpoint the completed sub-steps (Day 11). Resume from the last successful checkpoint (Day 12). Include partial results in the final report with clear annotations (Day 13).
-
----
-
-### 6. GUARDRAIL_TRIGGERED
-
-**Definition:** The system deliberately stopped or modified execution to enforce a safety constraint.
-
-**Examples:**
-- Max-step limit reached
-- Research budget exceeded (2 company research calls)
-- Context window pruned due to token limit
-- Input validation rejected bad data
-
-**Retry Policy:** `NOT_RETRYABLE` — the guardrail is the correct behaviour. Do not retry.
-
-**Recovery:** Log the guardrail trigger. Return whatever partial results exist. This is not a failure — it is the system working as designed.
-
----
-
-### 7. CONTEXT_OVERFLOW
-
-**Definition:** The context window exceeded the configured token limit.
-
-**Examples:**
-- Token count exceeds 30,000
-- Message history too large for the model
-
-**Retry Policy:** `RETRY_MODIFIED` — prune the context and retry.
-
-**Recovery:** The context pruner (Day 4) handles this automatically. If pruning is insufficient, stop with partial results.
-
----
-
-### 8. AUTH_ERROR
-
-**Definition:** Authentication or authorisation failed for an external service.
-
-**Examples:**
-- OpenAI returns HTTP 401 (invalid API key)
-- OpenAI returns HTTP 403 (insufficient permissions)
-- API key has been revoked
-
-**Retry Policy:** `MANUAL_INTERVENTION` — the user must fix their credentials. Do not retry.
-
-**Recovery:** Stop immediately with a clear error message directing the user to check their `.env` file.
-
----
-
-## Decision Matrix
-
-| Category | Retry? | Backoff? | Max Attempts | Human Action? |
-|----------|--------|----------|-------------|---------------|
-| MISSING_DATA | Modified | No | 1 | Only if input is bad |
-| MALFORMED_RESPONSE | Same | No | 2 (repair loop) | No |
-| DEAD_API | Same | Exponential | 3 | No |
-| TIMEOUT | Same | Exponential | 2 | No |
-| PARTIAL_COMPLETION | Modified | No | 1 (failed sub-step) | No |
-| GUARDRAIL_TRIGGERED | No | No | 0 | No |
-| CONTEXT_OVERFLOW | Modified | No | 1 (prune + retry) | No |
-| AUTH_ERROR | No | No | 0 | Yes — fix credentials |
-
----
-
-## Design Principles
-
-1. **Classify before you handle.** Never catch a bare `except Exception` without mapping it to a category.
-2. **Bounded retries.** Every retry loop has a maximum attempt count. No infinite loops.
-3. **Structured failure records.** Every failure is logged as a `FailureRecord` with category, retry policy, source, and original error type.
-4. **Partial results are valuable.** A run that fails on step 4 of 6 still has 3 steps of useful data. Never discard it.
-5. **Guardrails are not failures.** A system that stops itself at the right moment is working correctly.
+- Retry, backoff and resume recover from real faults only in unit tests and one development session. No live run has hit a real transient failure.
+- The runtime grounding and structure guards have never triggered live.
+- No frequencies above are rates for production use: the live sample is 20 queries, 34 jobs, one CV, one run.
+- Of the 8 categories, 3 are never emitted and 1 (`CONTEXT_OVERFLOW`) is probably unreachable.
+- The retry behaviour for 429/5xx/connection errors was added without a real occurrence to test against.

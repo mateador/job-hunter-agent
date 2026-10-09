@@ -83,20 +83,20 @@ def test_main_flags_unpriced_calls(tmp_path, capsys):
 # ── compare ──
 
 def test_compare_mock_runs_every_model(tmp_path):
-    rows = compare_models(["gpt-4o-mini", "gpt-4o", "no-such-model"], queries("std-01", "std-02"), False, 3, tmp_path)
-    assert [r["model"] for r in rows] == ["gpt-4o-mini", "gpt-4o", "no-such-model"]
+    rows = compare_models(["gpt-4o-mini", "gpt-5.4", "no-such-model"], queries("std-01", "std-02"), False, 3, tmp_path)
+    assert [r["model"] for r in rows] == ["gpt-4o-mini", "gpt-5.4", "no-such-model"]
     assert [r["priced"] for r in rows] == [True, True, False]
     assert rows[1]["cost_usd"] > rows[0]["cost_usd"]  # same synthetic tokens, pricier model
     assert rows[2]["cost_usd"] == 0 and rows[2]["unpriced_calls"] > 0
     md = render_comparison(rows, "mock", "now", 2)
     assert "no-such-model (unpriced)" in md and "x |" in md and "synthetic" in md and "cost is understated" in md
-    assert (tmp_path / "compare" / "gpt-4o").exists()  # separate run dirs per model
+    assert (tmp_path / "compare" / "gpt-5.4").exists()  # separate run dirs per model
 
 
 def test_compare_main_writes_files(tmp_path, capsys):
-    assert compare_main(["--mock", "--models", "gpt-4o-mini,gpt-4o", "--ids", "std-01", "--out", str(tmp_path)]) == 0
+    assert compare_main(["--mock", "--models", "gpt-4o-mini,gpt-5.4", "--ids", "std-01", "--out", str(tmp_path)]) == 0
     data = json.loads(next(tmp_path.glob("compare_mock_*.json")).read_text())
-    assert [r["model"] for r in data["rows"]] == ["gpt-4o-mini", "gpt-4o"]
+    assert [r["model"] for r in data["rows"]] == ["gpt-4o-mini", "gpt-5.4"]
     assert "Model Comparison" in next(tmp_path.glob("compare_mock_*.md")).read_text()
 
 
@@ -107,6 +107,17 @@ def test_compare_needs_two_models(tmp_path):
 
 def test_compare_live_aborts_without_confirmation(tmp_path, monkeypatch, capsys):
     monkeypatch.setattr(sys.stdin, "isatty", lambda: False)
-    assert compare_main(["--models", "gpt-4o-mini,gpt-4o", "--ids", "std-01", "--out", str(tmp_path)]) == 1
+    assert compare_main(["--models", "gpt-4o-mini,gpt-5.4", "--ids", "std-01", "--out", str(tmp_path)]) == 1
     assert "Aborted" in capsys.readouterr().out
     assert not list(tmp_path.glob("compare_*"))
+
+
+def test_compare_reports_effort_only_for_reasoning_models_and_failed_jobs(tmp_path):
+    rows = compare_models(["gpt-4o-mini", "gpt-5-nano"], queries("std-01"), False, 2, tmp_path,
+                          reasoning_effort="minimal")
+    assert [r["reasoning_effort"] for r in rows] == [None, "minimal"]
+    assert all(r["failed_jobs"] == 0 for r in rows)
+    rows[1]["failed_jobs"] = 2
+    md = render_comparison(rows, "mock", "now", 1)
+    assert "gpt-5-nano (effort: minimal)" in md and "gpt-4o-mini (effort" not in md
+    assert "2 job(s) failed" in md and "LLM timeout per attempt" in md

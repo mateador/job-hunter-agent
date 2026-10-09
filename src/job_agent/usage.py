@@ -14,6 +14,7 @@ class LLMUsage(BaseModel):
     prompt_tokens: int = 0
     completion_tokens: int = 0
     cached_tokens: int = 0
+    reasoning_tokens: int = 0  # part of completion_tokens (hidden thinking), billed as output
     latency_s: float = 0.0
     synthetic: bool = False  # True for mock-mode estimates that did not come from an API response
 

@@ -269,3 +269,53 @@ def test_summary_reports_grounding_guard():
                                   tools_called=["search_freehire", "llm_chat"]), make_query())
     assert summarize([sc])["grounding_guard"] == {"applications": 2, "retries": 2, "flagged": 1}
     assert "Grounding guard:** 2 of 2 applications regenerated, 1 still flagged" in render_markdown([sc], "mock", "now")
+
+
+# ── addressing: false positives found in the 2026-10-09 live run ──
+
+def _addr(company, letter, title="Python Engineer"):
+    job = {"id": "j1", "title": title, "company": company}
+    return check_addressing(make_result(jobs=[job], applications=[app(cover_letter=letter)]), make_query()).passed
+
+
+def test_addressing_accepts_a_slug_company_written_as_a_name():
+    letter = "Dear Hiring Manager,\n\nI am excited to apply for the Python Engineer role at Foundation Health.\n\nBest"
+    assert _addr("foundationhealthcareers", letter)
+    # a different company is still wrong, and short single-word names are not loosened
+    assert not _addr("foundationhealthcareers", letter.replace("Foundation Health", "Globex Industries"))
+    assert not _addr("Acme", "Dear Hiring Manager,\n\nPython Engineer at Acmeish Ltd would suit me.\n\nBest".replace("Acmeish", "Zenith"))
+
+
+def test_addressing_accepts_a_named_contact_but_not_a_team_or_company_greeting():
+    body = "\n\nI am thrilled to apply for the Python Engineer position at Rhea Space Activity.\n\nBest"
+    assert _addr("Eden Scott", "Dear Derek Polowyj," + body)
+    assert not _addr("Eden Scott", "Dear Hiring Manager," + body)
+    assert not _addr("Eden Scott", "Dear Rhea Space Team," + body)
+    assert not _addr("Eden Scott", "Dear Globex Corp," + body)
+    assert not _addr("Eden Scott", "Dear Rhea Team," + body)
+
+
+def test_addressing_still_requires_the_job_title_for_a_named_contact():
+    assert not _addr("Eden Scott", "Dear Derek Polowyj,\n\nI would love to work as a chef.\n\nBest")
+
+
+def test_rescore_applies_current_checks_to_a_saved_run(tmp_path):
+    import json
+    from evals.rescore import changes, main as rescore_main, rescore
+    from evals.report import write_reports
+
+    wrong = app(cover_letter=LETTER.replace("Acme", "Globex"))
+    saved = score_result(make_result(query_id="std-01", jobs=[JOB_PY], applications=[wrong],
+                                     usage={"calls": 1, "cost_usd": 0.001, "prompt_tokens": 10, "completion_tokens": 5,
+                                            "total_tokens": 15, "cached_tokens": 0, "unpriced_calls": 0,
+                                            "by_purpose": {}, "by_model": {}},
+                                     tools_called=["search_freehire", "llm_chat"]), make_query(id="std-01"))
+    assert not saved.passed
+    json_path, _ = write_reports([saved], "live", tmp_path)
+    payload = json.loads(json_path.read_text())
+    payload["queries"][0]["checks"] = [{**c, "passed": True} for c in payload["queries"][0]["checks"]]  # pretend an old, laxer check
+    [new] = rescore(payload)
+    assert not new.passed and changes(payload, [new])  # the current check flags it; the change is reported
+    json_path.write_text(json.dumps(payload))
+    assert rescore_main([str(json_path), "--out", str(tmp_path / "out")]) == 0
+    assert list((tmp_path / "out").glob("eval_live_rescored_*.md"))

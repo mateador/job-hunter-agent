@@ -7,7 +7,7 @@ SCENARIOS = load_scenarios()
 
 def test_scenario_set_covers_each_decision_reason():
     reasons = {j.expected_reason for s in SCENARIOS for j in s.jobs}
-    assert reasons == {"thin_description", "rich_description", "no_company", "agency", "already_researched"}
+    assert reasons == {"thin_description", "rich_description", "no_company", "agency", "agency_posting", "already_researched"}
     assert {s.ddg_mode for s in SCENARIOS} == {"ok", "fail", "empty"}
 
 

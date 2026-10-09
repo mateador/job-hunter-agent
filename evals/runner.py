@@ -159,7 +159,7 @@ def _load_cv(query: GoldenQuery, live: bool, notes: List[str]) -> Optional[str]:
 
 
 def run_query(query: GoldenQuery, live: bool, max_jobs: int, model: str, out_dir: Path,
-              retry_model: Optional[str] = None) -> RunResult:
+              retry_model: Optional[str] = None, reasoning_effort: Optional[str] = None) -> RunResult:
     mode = "live" if live else "mock"
     notes: List[str] = []
     run_dir = out_dir / "runs" / mode / query.id
@@ -174,7 +174,8 @@ def run_query(query: GoldenQuery, live: bool, max_jobs: int, model: str, out_dir
     try:
         with ctx:
             agent = AgentRunner(audit_logger=audit_logger, checkpoint_manager=checkpoint_manager,
-                                model=model, max_jobs=max_jobs, cv_text=cv_text, retry_model=retry_model)
+                                model=model, max_jobs=max_jobs, cv_text=cv_text, retry_model=retry_model,
+                                reasoning_effort=reasoning_effort)
             output = agent.run(query.query)
         result.status = output["status"]
         result.jobs = [{**j.model_dump(), "description": (j.description or "")[:500],
@@ -192,11 +193,14 @@ def run_query(query: GoldenQuery, live: bool, max_jobs: int, model: str, out_dir
     result.tools_called = _tools_from_trace(events)
     result.ignored_params = _ignored_params_from_trace(events)
     result.grounding_retries = _count_events(events, "grounding_retry")
+    result.structure_retries = _count_events(events, "structure_retry")
+    result.structure_flagged = _count_events(events, "structure_flagged")
     return result
 
 
 def run_dataset_budgeted(queries: List[GoldenQuery], live: bool, max_jobs: int, model: str, out_dir: Path,
-                         retry_model: Optional[str] = None, max_cost: Optional[float] = None):
+                         retry_model: Optional[str] = None, max_cost: Optional[float] = None,
+                         reasoning_effort: Optional[str] = None):
     """Run queries in order, stopping once estimated spend exceeds max_cost (USD).
 
     The cap is checked between queries, so one query's cost can overshoot it. Returns
@@ -211,7 +215,7 @@ def run_dataset_budgeted(queries: List[GoldenQuery], live: bool, max_jobs: int, 
             print(reason)
             return scores, reason
         print(f"[{i}/{len(queries)}] {q.id}: {q.query.strip()[:50]!r}")
-        result = run_query(q, live, max_jobs, model, out_dir, retry_model)
+        result = run_query(q, live, max_jobs, model, out_dir, retry_model, reasoning_effort)
         spent += (result.usage or {}).get("cost_usd", 0.0)
         scores.append(score_result(result, q))
     return scores, None
@@ -233,6 +237,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     p.add_argument("--max-jobs", type=int, default=3, help="Jobs to process per query")
     p.add_argument("--model", default="gpt-4o-mini")
     p.add_argument("--retry-model", help="Model for grounding retries (default: same as --model)")
+    p.add_argument("--reasoning-effort", help="reasoning_effort for gpt-5/o-series models only (e.g. minimal, low)")
     p.add_argument("--max-cost", type=float, help="Stop once estimated cost (USD, list price) exceeds this")
     p.add_argument("--out", type=Path, default=DEFAULT_OUT, help="Output directory")
     args = p.parse_args(argv)
@@ -266,7 +271,7 @@ def main(argv: Optional[List[str]] = None) -> int:
             return 1
 
     scores, stopped = run_dataset_budgeted(queries, args.live, args.max_jobs, args.model, args.out,
-                                           args.retry_model, args.max_cost)
+                                           args.retry_model, args.max_cost, args.reasoning_effort)
     json_path, md_path = write_reports(scores, "live" if args.live else "mock", args.out, scenario_results,
                                        notes=[stopped] if stopped else None)
     passed = sum(s.passed for s in scores)

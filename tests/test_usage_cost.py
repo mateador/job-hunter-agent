@@ -184,3 +184,55 @@ def test_report_includes_usage_line(tmp_path, monkeypatch):
                             "usage": {"calls": 2, "total_tokens": 3000, "cost_usd": 0.0123, "unpriced_calls": 0}})
     text = open(path).read()
     assert "2 calls, 3,000 tokens" in text and "$0.0123" in text and "not billing" in text
+
+
+# ── Reasoning models: timeout and reasoning_effort ──
+
+def test_reasoning_effort_is_sent_only_to_models_that_support_it(tmp_path, monkeypatch):
+    from src.job_agent.routing import supports_reasoning_effort
+    assert supports_reasoning_effort("gpt-5-nano") and supports_reasoning_effort("gpt-5.4-2026-01-01")
+    assert not any(supports_reasoning_effort(m) for m in ("gpt-4o-mini", "gpt-4.1-mini", "", None))
+
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+    with patch("src.job_agent.llm_client.OpenAI") as openai_cls:
+        create = openai_cls.return_value.chat.completions.create
+        create.return_value = response()
+        logger = AuditLogger(trace_dir=str(tmp_path))
+        LLMClient(logger, model="gpt-5-nano", reasoning_effort="minimal").chat([{"role": "user", "content": "x"}])
+        assert create.call_args[1]["reasoning_effort"] == "minimal"
+        LLMClient(logger, model="gpt-4o-mini", reasoning_effort="minimal").chat([{"role": "user", "content": "x"}])
+        assert "reasoning_effort" not in create.call_args[1]
+        LLMClient(logger, model="gpt-5-nano").chat([{"role": "user", "content": "x"}])
+        assert "reasoning_effort" not in create.call_args[1]
+
+
+def test_reasoning_tokens_and_effort_are_logged(tmp_path, monkeypatch):
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+    with patch("src.job_agent.llm_client.OpenAI") as openai_cls:
+        resp = response()
+        resp.usage.completion_tokens_details = SimpleNamespace(reasoning_tokens=300)
+        openai_cls.return_value.chat.completions.create.return_value = resp
+        c = LLMClient(AuditLogger(trace_dir=str(tmp_path)), model="gpt-5-nano", reasoning_effort="low")
+        c.chat([{"role": "user", "content": "x"}])
+    assert c.usage.records[0].reasoning_tokens == 300
+    event = trace(c, "llm_usage")[0]
+    assert event["reasoning_tokens"] == 300 and event["reasoning_effort"] == "low"
+
+
+def test_llm_timeout_env_override(monkeypatch):
+    from src.job_agent.config import LLM_TIMEOUT, get_llm_timeout
+    monkeypatch.delenv("LLM_TIMEOUT", raising=False)
+    assert get_llm_timeout() == LLM_TIMEOUT
+    monkeypatch.setenv("LLM_TIMEOUT", "180")
+    assert get_llm_timeout() == 180.0
+    for bad in ("abc", "0", "-5"):
+        monkeypatch.setenv("LLM_TIMEOUT", bad)
+        assert get_llm_timeout() == LLM_TIMEOUT
+
+
+def test_client_is_built_with_the_configured_timeout(tmp_path, monkeypatch):
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+    monkeypatch.setenv("LLM_TIMEOUT", "150")
+    with patch("src.job_agent.llm_client.OpenAI") as openai_cls:
+        LLMClient(AuditLogger(trace_dir=str(tmp_path)), model="gpt-5-nano")
+    assert openai_cls.call_args[1]["timeout"] == 150.0 and openai_cls.call_args[1]["max_retries"] == 0

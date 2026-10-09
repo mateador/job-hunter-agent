@@ -138,9 +138,7 @@ We've built a resilient, observable AI agent for job hunting that can survive cr
 
 ### Known Limitations
 
-- No cost tracking yet (Day 19)
-- No eval harness yet (Days 15-16)
-- No model routing yet (Day 19)
+- (Day 14 snapshot, since resolved: eval harness Days 15-16, cost tracking and model routing Day 19)
 - Agent doesn't yet handle pagination (only first page of results)
 - No deduplication of jobs across runs
 
@@ -155,8 +153,8 @@ We've built a resilient, observable AI agent for job hunting that can survive cr
 - **Day 17:** Correctness + format evals
 - **Day 18:** Tool selection + escalation evals
 - **Day 19:** Cost measurement + model routing
-- **Day 20:** Failure mode documentation
-- **Day 21:** CHECKPOINT — Eval report with pass rates, cost per run
+- **Day 20:** Failure mode documentation (done: `docs/FAILURE_TAXONOMY.md` rewritten from real trace data; agency-language signal; `FREEHIRE_REGIONS`; fixed HTTP error classification bug)
+- **Day 21:** CHECKPOINT — Eval report with pass rates, cost per run (done: `docs/BASELINE.md` Day 21 section, 18/20 as run, 19/20 after fixing two check false positives, $0.0005 per application)
 
 ### Week 4: Communicate and Defend (Days 22–28)
 

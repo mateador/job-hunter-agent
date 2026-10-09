@@ -7,16 +7,18 @@ from typing import Any, Callable, Dict, List, Optional, Set
 from src.job_agent.grounding import extract_numbers  # noqa: F401  (re-exported for the harness)
 from src.job_agent.research_policy import normalise_company
 
+from src.job_agent.format_rules import (MAX_BULLET_CHARS, MAX_BULLETS, MAX_WORDS, MIN_BULLETS,
+                                          MIN_WORDS)
+
 from .dataset_schema import GoldenQuery
 from .result_models import CheckResult, QueryScore, RunResult
 
 RELEVANCE_THRESHOLD = 0.5
 COMPLETED_STATUSES = {"completed", "partial"}
 
-# Format thresholds (the generation prompt asks for 3-4 bullets and 3-4 letter paragraphs).
-MIN_BULLETS, MAX_BULLETS, MAX_BULLET_CHARS = 3, 4, 300
+# Format thresholds. Bullet and word limits are shared with the generation prompt (format_rules);
+# the prompt asks for 3-4 letter paragraphs.
 MIN_BODY_PARAS, MAX_BODY_PARAS = 3, 5  # one more than the prompt asks, to allow a short closing
-MIN_WORDS, MAX_WORDS = 150, 350
 
 _GREETING = re.compile(r"^\s*(dear|hello|hi|to whom)\b", re.I)
 _PLACEHOLDER = re.compile(r"\[(your|company|hiring|name|position|job|insert|candidate)[^\]]*\]|\bbullet \d\b", re.I)
@@ -148,16 +150,45 @@ def _significant_words(text: str) -> List[str]:
     return [w for w in re.findall(r"[a-z0-9]+", text.lower()) if len(w) >= 3 and w not in _TITLE_STOPWORDS]
 
 
+# A greeting "Dear Firstname Lastname," is a letter to a named person. The prompt tells the model to
+# address agency letters to the consultant, and agencies are not always recognisable from the company
+# name, so a named contact counts as well as the words "consultant"/"recruiter". Greetings that end in
+# a team or company word ("Dear Bactobio Team", "Dear Globex Corp") are not people.
+_NAMED_GREETING = re.compile(r"^\s*(?i:dear|hello|hi)\s+([A-Z][a-z'’-]+)\s+([A-Z][a-z'’-]+)\s*,?\s*$")
+_NOT_A_PERSON = {"team", "manager", "managers", "committee", "department", "sir", "madam", "recruiter",
+                 "recruiters", "recruitment", "consultant", "talent", "corp", "corporation", "ltd", "limited",
+                 "inc", "llc", "plc", "group", "labs", "health", "systems", "technologies", "solutions",
+                 "partners", "holdings", "software", "ai", "hiring", "team,", "staff", "panel"}
+_SLUG_MIN_CHARS = 12  # FreeHire sometimes gives a slug ("foundationhealthcareers") instead of a name
+
+
+def _addressed_to_named_person(letter: str) -> bool:
+    m = _NAMED_GREETING.match(letter.strip().split("\n", 1)[0])
+    return bool(m) and not ({m.group(1).lower(), m.group(2).lower()} & _NOT_A_PERSON)
+
+
+def _company_mentioned(company: str, first: Optional[str], letter_lower: str) -> bool:
+    if not first or first in letter_lower:
+        return True
+    # A one-word slug usually continues a name the letter spells with spaces and may shorten.
+    squashed_company = re.sub(r"[^a-z0-9]", "", company.lower())
+    if " " not in company.strip() and len(squashed_company) >= _SLUG_MIN_CHARS:
+        prefix = squashed_company[: max(_SLUG_MIN_CHARS, int(len(squashed_company) * 0.6))]
+        return prefix in re.sub(r"[^a-z0-9]", "", letter_lower)
+    return False
+
+
 def _addressing_problems(app: Dict[str, Any], job: Dict[str, Any]) -> List[str]:
-    letter = str(app.get("cover_letter") or "").lower()
+    raw_letter = str(app.get("cover_letter") or "")
+    letter = raw_letter.lower()
     problems: List[str] = []
     company = re.split(r"[(\-–—|]", job.get("company") or "")[0]
     first = next((w for w in re.findall(r"[a-z0-9]+", company.lower())
                   if w not in {"the", "a", "an"} and not w.isdigit()), None)
-    # The prompt tells the model to address agency letters to the consultant, so that also counts.
     greeting = letter.strip().split("\n", 1)[0]
-    to_consultant = bool(re.search(r"\b(consultant|recruiter|recruitment)\b", greeting))
-    if first and first not in letter and not to_consultant:
+    to_consultant = bool(re.search(r"\b(consultant|recruiter|recruitment)\b", greeting)) \
+        or _addressed_to_named_person(raw_letter)
+    if first and not _company_mentioned(company, first, letter) and not to_consultant:
         problems.append(f"company '{first}' not mentioned")
     title = job.get("title") or ""
     # Titles often carry prefixes/suffixes ("UK Remote Job – DevOps Engineer"), so any segment may match.
@@ -284,8 +315,9 @@ def check_tool_sequence(result: RunResult, query: GoldenQuery) -> CheckResult:
     if llm and not result.jobs:
         problems.append(f"{llm} LLM calls but no jobs")
     processed = len(result.applications) + len(result.failed_jobs)
-    expected_llm = processed + result.grounding_retries
-    note = (f"; {llm} LLM calls for {processed} jobs + {result.grounding_retries} grounding retries (retries?)"
+    expected_llm = processed + result.grounding_retries + result.structure_retries
+    note = (f"; {llm} LLM calls for {processed} jobs + {result.grounding_retries} grounding and "
+            f"{result.structure_retries} structure retries (retries?)"
             if llm != expected_llm and result.jobs else "")
     return CheckResult(name="tool_sequence", passed=not problems,
                        detail=("; ".join(problems) or f"search once, then {llm} LLM calls") + note)

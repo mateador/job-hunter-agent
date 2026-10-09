@@ -143,6 +143,8 @@ Examples:
     parser.add_argument("--max-jobs", type=int, default=10, help="Maximum jobs to process per query")
     parser.add_argument("--model", default="gpt-4o-mini", help="OpenAI model to use")
     parser.add_argument("--retry-model", help="Model for grounding retries (default: same as --model)")
+    parser.add_argument("--reasoning-effort", help="reasoning_effort for gpt-5/o-series models only (e.g. minimal, low); "
+                                                   "ignored for other models. Accepted values depend on the model")
     parser.add_argument("--verbose", "-v", action="store_true", help="Enable verbose logging")
 
     # Resume configuration
@@ -234,6 +236,7 @@ Examples:
             checkpoint_manager=checkpoint_manager,
             model=args.model,
             retry_model=args.retry_model,
+            reasoning_effort=args.reasoning_effort,
             max_jobs=args.max_jobs,
             cv_text=cv_text,
         )

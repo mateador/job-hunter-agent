@@ -68,7 +68,7 @@ def test_mock_run_escalates_only_thin_non_agency_jobs(tmp_path):
 def test_main_reports_scenarios_and_escalation(tmp_path, capsys):
     assert main(["--ids", "std-02", "--out", str(tmp_path)]) == 0
     out = capsys.readouterr().out
-    assert "Tool-selection scenarios: 14/14 passed" in out
+    assert "Tool-selection scenarios: 19/19 passed" in out
     md = next(tmp_path.glob("eval_mock_*.md")).read_text()
     assert "## Tool-selection scenarios" in md and "**Escalation:**" in md
 

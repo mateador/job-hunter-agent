@@ -19,7 +19,9 @@ from typing import Any, Dict, List, Optional
 
 from dotenv import load_dotenv
 
+from src.job_agent.config import get_llm_timeout
 from src.job_agent.pricing import price_for, pricing_note
+from src.job_agent.routing import supports_reasoning_effort
 
 from .dataset_schema import load_dataset
 from .report import summarize
@@ -31,18 +33,21 @@ def _slug(model: str) -> str:
 
 
 def compare_models(models: List[str], queries, live: bool, max_jobs: int, out_dir: Path,
-                   max_cost: Optional[float] = None, retry_model: Optional[str] = None) -> List[Dict[str, Any]]:
+                   max_cost: Optional[float] = None, retry_model: Optional[str] = None,
+                   reasoning_effort: Optional[str] = None) -> List[Dict[str, Any]]:
     rows: List[Dict[str, Any]] = []
     for model in models:
         print(f"\n=== {model} ===")
         scores, stopped = run_dataset_budgeted(queries, live, max_jobs, model, out_dir / "compare" / _slug(model),
-                                               retry_model, max_cost)
+                                               retry_model, max_cost, reasoning_effort)
         s = summarize(scores)
         cost = s["cost"]
         rows.append({
             "model": model,
             "priced": price_for(model) is not None,
             "queries_run": len(scores),
+            "reasoning_effort": reasoning_effort if supports_reasoning_effort(model) else None,
+            "failed_jobs": sum(len(sc.result.failed_jobs) for sc in scores),
             "stopped": stopped,
             "queries_passed": s["passed"],
             "pass_rate": s["pass_rate"],
@@ -68,19 +73,27 @@ def render_comparison(rows: List[Dict[str, Any]], mode: str, timestamp: str, que
              f"{queries} queries per model, same checks for each. First model ({base['model']}) is the reference.", ""]
     if mode == "mock":
         lines += ["> Mock mode: quality and token numbers are synthetic and identical across models. This only checks the tooling.", ""]
-    lines += ["| Model | Queries passed | Grounding | Format | Applications | Retries / flagged | Est. cost | Cost / app | vs ref | Mean latency |",
-              "|---|---|---|---|---|---|---|---|---|---|"]
+    lines += ["| Model | Queries passed | Grounding | Format | Applications | Failed jobs | Retries / flagged | Est. cost | Cost / app | vs ref | Mean latency |",
+              "|---|---|---|---|---|---|---|---|---|---|---|"]
     for r in rows:
         ratio = "-"
         if r is not base and base["cost_per_application_usd"] and r["cost_per_application_usd"] is not None:
             ratio = f"{r['cost_per_application_usd'] / base['cost_per_application_usd']:.2f}x"
         name = r["model"] + ("" if r["priced"] else " (unpriced)")
+        if r.get("reasoning_effort"):
+            name += f" (effort: {r['reasoning_effort']})"
         lines.append(f"| {name} | {r['queries_passed']}/{r['queries_run']} ({pct(r['pass_rate'])}) | "
-                     f"{pct(r['checks'].get('grounding'))} | {pct(r['checks'].get('format'))} | {r['applications']} | "
+                     f"{pct(r['checks'].get('grounding'))} | {pct(r['checks'].get('format'))} | {r['applications']} | {r['failed_jobs']} | "
                      f"{r['grounding_retries']} / {r['grounding_flagged']} | {usd(r['cost_usd'])} | "
                      f"{usd(r['cost_per_application_usd'])} | {ratio} | "
                      f"{'n/a' if r['latency_mean_s'] is None else format(r['latency_mean_s'], '.1f') + 's'} |")
+    lines += ["", f"LLM timeout per attempt: {get_llm_timeout():.0f}s (`LLM_TIMEOUT`). Reasoning effort applies only to "
+              "gpt-5 / o-series models; the other rows used the model's own behaviour."]
     for r in rows:
+        if r["failed_jobs"]:
+            lines += ["", f"**{r['model']}:** {r['failed_jobs']} job(s) failed (for a reasoning model, usually timeouts: "
+                          "raise `LLM_TIMEOUT` or lower the reasoning effort). Failed attempts report no usage, "
+                          "so their cost is missing from this table."]
         if r["stopped"]:
             lines += ["", f"**{r['model']}:** {r['stopped']}"]
         if r["unpriced_calls"]:
@@ -103,6 +116,8 @@ def main(argv: Optional[List[str]] = None) -> int:
     p.add_argument("--max-jobs", type=int, default=2)
     p.add_argument("--max-cost", type=float, default=1.0, help="Per-model cap in USD (estimated, list price)")
     p.add_argument("--retry-model", help="Model for grounding retries, applied to every compared model")
+    p.add_argument("--reasoning-effort", help="reasoning_effort for the gpt-5 / o-series models in the list "
+                                              "(e.g. minimal, low); other models ignore it")
     p.add_argument("--out", type=Path, default=DEFAULT_OUT)
     args = p.parse_args(argv)
     load_dotenv(Path(__file__).parent.parent / ".env")
@@ -126,13 +141,16 @@ def main(argv: Optional[List[str]] = None) -> int:
         unpriced = [m for m in models if price_for(m) is None]
         print(f"Live comparison: {len(models)} models x {len(queries)} queries, up to {calls} OpenAI calls, "
               f"capped at ${args.max_cost:.2f} estimated per model.")
+        effort = args.reasoning_effort or "model default"
+        print(f"LLM timeout {get_llm_timeout():.0f}s per attempt (set LLM_TIMEOUT to change); reasoning effort for "
+              f"gpt-5/o-series models: {effort}.")
         if unpriced:
             print(f"WARNING: no price for {unpriced}; the cap cannot protect you for those models.")
         if not sys.stdin.isatty() or input("Continue? [y/N] ").strip().lower() != "y":
             print("Aborted. Use --yes to skip this prompt.")
             return 1
 
-    rows = compare_models(models, queries, live, args.max_jobs, args.out, args.max_cost, args.retry_model)
+    rows = compare_models(models, queries, live, args.max_jobs, args.out, args.max_cost, args.retry_model, args.reasoning_effort)
     mode = "live" if live else "mock"
     now = datetime.now()
     stamp = now.strftime("%Y%m%d_%H%M%S")

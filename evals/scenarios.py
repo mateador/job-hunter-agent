@@ -24,7 +24,8 @@ class ScenarioJob(BaseModel):
     id: str
     title: str = "Software Engineer"
     company: Optional[str]
-    description_chars: Optional[int]  # None means no description at all
+    description_chars: Optional[int] = None  # None (with no text) means no description at all
+    description_text: Optional[str] = None  # used as written, then padded with filler to description_chars
     expected_research: bool
     expected_reason: str
 
@@ -45,6 +46,12 @@ def load_scenarios(path: Path = SCENARIOS_PATH) -> List[Scenario]:
     return scenarios
 
 
+def _description(job: ScenarioJob) -> Optional[str]:
+    if job.description_text is None:
+        return None if job.description_chars is None else "a" * job.description_chars
+    return job.description_text.ljust(job.description_chars or 0, ".")
+
+
 def run_scenario(scenario: Scenario, out_dir: Path) -> ScenarioResult:
     # Imported here: runner imports this module's siblings, avoid a circular import at load time.
     from .runner import _mock_environment, _read_trace, _tools_from_trace
@@ -54,7 +61,7 @@ def run_scenario(scenario: Scenario, out_dir: Path) -> ScenarioResult:
     checkpoint_manager = CheckpointManager(checkpoint_dir=str(run_dir / "checkpoints"), run_id=scenario.id)
     jobs = [
         {"id": j.id, "title": j.title, "company": j.company,
-         "description": None if j.description_chars is None else "a" * j.description_chars}
+         "description": _description(j)}
         for j in scenario.jobs
     ]
     problems: List[str] = []

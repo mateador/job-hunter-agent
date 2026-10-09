@@ -189,12 +189,17 @@ Each run prints its token usage and estimated cost, and the report's summary rep
     python -m evals.runner --live --max-cost 0.50
 
     # Compare models on the same queries: quality, cost per application and latency
-    python -m evals.compare --models gpt-4o-mini,<other-model> --limit 6 --max-cost 0.50
+    LLM_TIMEOUT=180 python -m evals.compare --models gpt-4o-mini,gpt-5-nano,gpt-4.1-mini,gpt-5.4 --reasoning-effort low --limit 6 --max-cost 0.50
     python -m evals.compare --mock --models a,b      # offline dry run of the tooling
+
+    # Re-score a saved run with the current checks (offline, no API calls)
+    python -m evals.rescore evals/results/eval_live_<timestamp>.json
 
 Reports are written to `evals/results/` (gitignored). Mock results say nothing about the agent itself; only `--live` runs measure it.
 
-**About the cost numbers.** They are estimates at the list prices in `src/job_agent/pricing.json`, not billing: credits, free tiers and discounts are not reflected, and failed or timed-out attempts report no usage so are not counted. A model missing from the table is reported as unpriced and never guessed. The price table was fetched on 2026-10-06 and must be checked by a person against OpenAI's pricing page; its `verified` flag stays `false` until then.
+**Reasoning models.** `gpt-5` models spend thousands of hidden reasoning tokens before writing (a first comparison run saw `gpt-5-nano` average about 5,900 completion tokens and 49s per call, against about 440 tokens and 4.7s for `gpt-4o-mini`), so the default 60s timeout is too short for them. Set `LLM_TIMEOUT` and optionally `--reasoning-effort` (sent only to `gpt-5*`/o-series models; accepted values depend on the model and are unverified here). Reasoning tokens are logged per call in `llm_usage` events.
+
+**About the cost numbers.** They are estimates at the list prices in `src/job_agent/pricing.json`, not billing: credits, free tiers and discounts are not reflected, and failed or timed-out attempts report no usage so are not counted. A model missing from the table is reported as unpriced and never guessed. The price table covers only the four models compared and is marked verified by the user; any other model is reported as unpriced. The comparison results are in `docs/MODEL_COMPARISON.md`.
 
 ---
 
@@ -202,13 +207,14 @@ Reports are written to `evals/results/` (gitignored). Mock results say nothing a
 
     job-hunter-agent/
     ├── docs/
-    │   ├── FAILURE_TAXONOMY.md       # Day 8: Failure categories and mitigation
+    │   ├── FAILURE_TAXONOMY.md       # Day 20: Failure modes, evidence and gaps
     │   └── PROGRESS.md               # Day 14 checkpoint progress report
     ├── evals/
     │   ├── dataset_schema.py         # Day 15: Golden dataset models
     │   ├── golden_dataset.json       # Day 15: 20 queries (standard, niche, broad, edge, agency)
     │   ├── runner.py                 # Day 16: Mock/live eval runner (python -m evals.runner)
     │   ├── compare.py                # Day 19: Compare models on quality, cost and latency
+    │   ├── rescore.py                # Day 21: Re-score a saved run with the current checks (offline)
     │   ├── scoring.py                # Day 16-18: Deterministic checks
     │   ├── scenarios.py              # Day 18: Offline tool-selection scenarios
     │   ├── tool_scenarios.json       # Day 18: Hand-labelled expected research decisions
@@ -228,6 +234,7 @@ Reports are written to `evals/results/` (gitignored). Mock results say nothing a
     │       ├── research_policy.py    # Day 18: When to research a company
     │       ├── grounding.py          # Day 18: Figures must come from the CV, posting or research
     │       ├── usage.py              # Day 19: Per-call token usage and aggregation
+    │       ├── format_rules.py       # Day 20: Format limits shared by prompt, structure guard and evals
     │       ├── pricing.py            # Day 19: Cost estimation from pricing.json
     │       ├── pricing.json          # Day 19: List prices (verify before relying on them)
     │       ├── routing.py            # Day 19: Which model serves which kind of call
@@ -257,9 +264,10 @@ Reports are written to `evals/results/` (gitignored). Mock results say nothing a
 | **Job freshness** | Tool | `posted_within_days=30` filters stale listings |
 | **Research escalation policy** | Code | Company research only for thin postings from known, non-agency companies; one lookup per company per run |
 | **Graceful research failure** | Code | A failed lookup is logged and the letter is written without research; the job still completes |
+| **Structure guard** | Code | A draft with no CV bullets, an empty letter, or raw JSON / a "generation failed" placeholder as the letter is regenerated once; if still defective it is kept and flagged "Review needed". Length is not enforced at runtime: the prompt states the limits (bullets at most 240 characters, letter 160-300 words) and the eval checks them against looser hard limits (`format_rules.py`) |
 | **Grounding guard** | Code | Figures in a generated application must appear in the CV, the posting or the research. Otherwise it is regenerated once with the offending figures named; if it still fails it is kept and flagged "Review needed" in the report. Numbers only: an invented skill without a figure is not caught |
 | **Typed data models** | Code | Pydantic models for jobs, applications and failures. Malformed LLM JSON falls back to raw text rather than failing the run; the format evals detect it |
-| **Recruitment agency handling** | Prompt + Code | Letters are addressed to the consultant (prompt instruction); agencies are never researched (name pattern in `research_policy.py`) |
+| **Recruitment agency handling** | Prompt + Code | Letters are addressed to the consultant (prompt instruction); agencies are never researched (name pattern, or posting language such as "our client", in `research_policy.py`) |
 | **Bounded retry** | Code | Exponential backoff (1s, then 2s) capped at 3 attempts |
 | **Timeout enforcement** | Code | Hard limits on all external API calls (LLM: 60s, FreeHire: 15s, DDG: 10s) |
 | **Checkpointing** | Code | State persisted to JSONL after every job step |
@@ -285,13 +293,13 @@ These are honest, deliberate scope boundaries — not bugs.
 
 | Limitation | Why | Mitigation Path |
 |-----------|-----|-----------------|
-| **Costs are list-price estimates** | Billing may differ (credits, free tiers); failed attempts report no usage; the price table is not yet verified | Verify `pricing.json` against the pricing page; compare with the actual invoice |
-| **Model routing is a mechanism, not a policy** | Every call uses `--model`; only grounding retries can use a different `--retry-model`, and no comparison has justified one yet | Run `python -m evals.compare` and change defaults only if the data supports it |
+| **Costs are list-price estimates** | Billing may differ (credits, free tiers); failed attempts report no usage; the price table covers four models | Compare with the actual invoice |
+| **Model routing is a mechanism, not a policy** | Every call uses `--model`; only grounding retries can use a different `--retry-model`, and the Day 19 comparison (`docs/MODEL_COMPARISON.md`) did not justify a change, and could not test a retry model because no grounding retry occurred | Re-run on a larger sample before changing defaults |
 | **UK-only search** | `regions=uk` is fixed in the FreeHire call | Make regions configurable; non-UK dataset queries are weak tests until then |
-| **Agency end-clients are not identified; agency detection is name-based** | FreeHire lists the posting agency as the company, and only known names and patterns ("recruit…", "staffing", Hays, Ocho...) are recognised | Recognised agencies are not researched and letters address the consultant. An unlisted recruiter (e.g. Intec Select) is treated as a normal company. Future: use posting language ("our client") as a second signal and extract the real company |
+| **Agency end-clients are not identified; agency detection is heuristic** | FreeHire lists the posting agency as the company. Agencies are recognised by name (“recruit…”, “staffing”, Hays, Ocho...) or by posting language (“our client”, “the client’s office”) | Recognised agencies are not researched and letters address the consultant. A recruiter whose name and posting avoid both signals is treated as a normal company; the language pattern was tuned on 112 saved postings and may flag an employer that writes “our client”. Future: extract the real company |
 | **Research is search snippets only** | Cheap and fast; no page fetching or summarisation | Snippets are filtered for ads and capped at 3 results |
 | **Grounding covers numbers only** | Deterministic and free, at runtime and in the evals | An invented employer or skill without a figure would not be caught. A future LLM-judge check could cover this |
-| **Eval baseline is small** | Live runs cost money | First full live baseline (19/20) is in `docs/BASELINE.md`; it is one run of 34 jobs and predates the grounding guard |
+| **Eval baseline is small** | Live runs cost money | Day 21 baseline (18/20 as run, 19/20 re-scored) is in `docs/BASELINE.md`; it is one run of 34 jobs. The guards did not fire in it, and letters came out shorter than the prompt asked |
 | **Single LLM provider** | OpenAI only for now | Architecture centralises all LLM calls behind `llm_client.py`. Swapping providers requires changing one file. |
 | **Cover letters are drafts, not final** | LLM-generated text requires human review | The report is a starting point. Every letter should be reviewed before sending. |
 
@@ -299,9 +307,9 @@ These are honest, deliberate scope boundaries — not bugs.
 
 ## 🔮 Next Iteration Roadmap
 
-1. **Failure mode documentation** (Day 20) — Document known failure frequencies and mitigation strategies based on real run data.
+1. **Resume does not retry failed jobs; backoff ignores `Retry-After`** (see `docs/FAILURE_TAXONOMY.md`).
 2. **Week 3 checkpoint report** (Day 21) — Pass rates, cost per run and latency from a full live eval.
-3. **End-client extraction and agency-language signal** (Day 20) — Parse job descriptions to identify the actual hiring company when the listing is from a recruitment agency.
+3. **End-client extraction** — Parse job descriptions to identify the actual hiring company when the listing is from a recruitment agency.
 4. **Human-in-the-loop approval** — Pause before generating cover letters so the candidate can approve the selected jobs.
 
 ---

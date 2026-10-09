@@ -36,6 +36,11 @@ def summarize(scores: List[QueryScore]) -> Dict[str, Any]:
             "retries": sum(s.result.grounding_retries for s in scores),
             "flagged": sum(1 for a in apps if a.get("warnings")),
         },
+        "structure_guard": {
+            "applications": len(apps),
+            "retries": sum(s.result.structure_retries for s in scores),
+            "flagged": sum(s.result.structure_flagged for s in scores),
+        },
         "escalation": {
             "jobs": len(decisions),
             "researched": sum(1 for d in decisions if d["decision"]),
@@ -132,6 +137,10 @@ def render_markdown(scores: List[QueryScore], mode: str, timestamp: str,
     if gg["applications"]:
         lines += ["", f"**Grounding guard:** {gg['retries']} of {gg['applications']} applications regenerated, "
                       f"{gg['flagged']} still flagged for review after the retry."]
+    sg = s["structure_guard"]
+    if sg["retries"] or sg["flagged"]:
+        lines += ["", f"**Structure guard:** {sg['retries']} of {sg['applications']} applications regenerated for missing "
+                      f"bullets or an unusable letter, {sg['flagged']} still defective after the retry."]
     lat = s["latency_mean_s"]
     lines += ["", f"Latency: mean {lat:.2f}s, max {s['latency_max_s']:.2f}s" if lat is not None else "", ""]
     lines += _cost_section(s["cost"])

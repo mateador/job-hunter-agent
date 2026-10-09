@@ -31,6 +31,7 @@ def _freehire_settings() -> dict:
         "query_param": os.getenv("FREEHIRE_QUERY_PARAM") or "q",
         "limit_param": os.getenv("FREEHIRE_LIMIT_PARAM") or "limit",
         "description_format": os.getenv("FREEHIRE_DESCRIPTION_FORMAT") or "markdown",
+        "regions": os.getenv("FREEHIRE_REGIONS") or "uk",
     }
 
 
@@ -47,7 +48,7 @@ def search_freehire(
             cfg["limit_param"]: call_kwargs["limit"],
             "description_format": cfg["description_format"],
             "posted_within_days": 30,
-            "regions": "uk"
+            "regions": cfg["regions"]
         }
         # Remove any None values just in case
         params = {k: v for k, v in params.items() if v is not None}

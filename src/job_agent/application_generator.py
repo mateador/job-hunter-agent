@@ -9,6 +9,7 @@ from rich.console import Console
 
 from .llm_client import LLMClient
 from .audit_logger import AuditLogger
+from .format_rules import MAX_BULLETS, MIN_BULLETS, PROMPT_BULLET_CHARS, PROMPT_MAX_WORDS, PROMPT_MIN_WORDS
 from .models import Job, Application, CompanyResearch, JobCandidate
 
 console = Console()
@@ -108,9 +109,9 @@ COMPANY RESEARCH:
 TASK:
 Generate two things:
 
-1. TAILORED CV BULLETS: Create 3-4 bullet points that highlight the candidate's most relevant experience for this specific role. Use strong action verbs and quantify results where possible. Focus on skills that match the job requirements. If a real CV was provided, draw directly from it — do NOT invent experience.
+1. TAILORED CV BULLETS: Create {MIN_BULLETS}-{MAX_BULLETS} bullet points, each one sentence of at most {PROMPT_BULLET_CHARS} characters, that highlight the candidate's most relevant experience for this specific role. Use strong action verbs and quantify results where possible. Focus on skills that match the job requirements. If a real CV was provided, draw directly from it — do NOT invent experience.
 
-2. COVER LETTER: Write a concise, professional cover letter (3-4 paragraphs) that:
+2. COVER LETTER: Write a professional cover letter (3-4 paragraphs, {PROMPT_MIN_WORDS}-{PROMPT_MAX_WORDS} words in total including the greeting and sign-off) that:
 - Opens with genuine enthusiasm for the specific role and company
 - Connects 2-3 specific accomplishments to the job requirements
 - Addresses any potential concerns honestly (e.g., location, visa status)

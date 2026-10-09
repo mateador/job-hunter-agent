@@ -222,6 +222,81 @@
           "expected_reason": "thin_description"
         }
       ]
+    },
+    {
+      "id": "agency-language-thin",
+      "description": "Recruiter with an unrecognisable name; the posting says 'the client's office'",
+      "jobs": [
+        {
+          "id": "a",
+          "title": "Python Developer",
+          "company": "Northwind Digital Ltd",
+          "description_text": "Hybrid, 2 days a week on-site at the client's office. Python and AWS.",
+          "description_chars": null,
+          "expected_research": false,
+          "expected_reason": "agency_posting"
+        }
+      ]
+    },
+    {
+      "id": "agency-language-rich",
+      "description": "Long recruiter posting: agency language wins over the rich-description rule",
+      "jobs": [
+        {
+          "id": "a",
+          "title": "Python Developer",
+          "company": "Brightwater Partners",
+          "description_text": "About the Company: Our client is a fast-growing AI company.",
+          "description_chars": 1500,
+          "expected_research": false,
+          "expected_reason": "agency_posting"
+        }
+      ]
+    },
+    {
+      "id": "plural-clients-not-agency",
+      "description": "'our clients' is ordinary employer language, not an agency signal",
+      "jobs": [
+        {
+          "id": "a",
+          "title": "Python Developer",
+          "company": "Cobalt Analytics",
+          "description_text": "We build dashboards that help our clients make decisions.",
+          "description_chars": null,
+          "expected_research": true,
+          "expected_reason": "thin_description"
+        }
+      ]
+    },
+    {
+      "id": "client-success-not-agency",
+      "description": "A Client Success team is not an agency signal",
+      "jobs": [
+        {
+          "id": "a",
+          "title": "Python Developer",
+          "company": "Cobalt Analytics",
+          "description_text": "Join Our Client Success Team and own onboarding.",
+          "description_chars": null,
+          "expected_research": true,
+          "expected_reason": "thin_description"
+        }
+      ]
+    },
+    {
+      "id": "on-behalf-of-leadership-not-agency",
+      "description": "'on behalf of' without a client is not an agency signal",
+      "jobs": [
+        {
+          "id": "a",
+          "title": "Python Developer",
+          "company": "Cobalt Analytics",
+          "description_text": "Draft communications on behalf of senior leadership.",
+          "description_chars": null,
+          "expected_research": true,
+          "expected_reason": "thin_description"
+        }
+      ]
     }
   ]
 }
