@@ -74,11 +74,18 @@ class AgentRunner:
             state = self._load_resume_state(resume_from)
             if state is not None:
                 saved_query = state.get("search_query", "")
-                if saved_query and saved_query != query:
+                if saved_query and not (query or "").strip():
+                    query = saved_query  # `--resume --run-id X` without a query continues the saved one
+                elif saved_query and saved_query != query:
                     raise ResumeError(
                         f"Query mismatch: checkpoint was for '{saved_query}' "
                         f"but you requested '{query}'. "
                         f"Use the original query to resume."
+                    )
+                if state.get("has_cv_text") and not self.cv_text:
+                    raise ResumeError(
+                        "This run was started with a CV. Pass --cv again to resume, otherwise the "
+                        "remaining letters would be written from a generic placeholder profile."
                     )
 
                 jobs_found = state.get("jobs_found", [])

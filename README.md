@@ -2,9 +2,9 @@
 
 [![Python](https://img.shields.io/badge/Python-3.10+-blue.svg)](https://www.python.org/)
 [![LLM](https://img.shields.io/badge/LLM-OpenAI%20GPT--4o--mini-green.svg)](https://platform.openai.com/)
-[![Status](https://img.shields.io/badge/Status-Day%2021%20of%2030-yellow.svg)](#)
+[![Status](https://img.shields.io/badge/Status-Day%2025%20of%2030-yellow.svg)](#)
 
-An observable, resilient agentic workflow that automates job research, CV matching, and tailored application drafting. Built as a 30-day portfolio case study (Day 24 of 30 complete) to demonstrate reliable AI workflows with full execution transparency, crash recovery, partial completion guarantees, and measurable evaluation.
+An observable, resilient agentic workflow that automates job research, CV matching, and tailored application drafting. Built as a 30-day portfolio case study (Day 25 of 30 complete) to demonstrate reliable AI workflows with full execution transparency, crash recovery, partial completion guarantees, and measurable evaluation.
 
 ---
 
@@ -84,7 +84,7 @@ Cover letters for recruitment agencies are addressed to the consultant rather th
 | 5 | Audit trail: JSONL event logging, trace viewer CLI | ✅ Complete |
 | 6 | Real workflow: tailored CV bullets, cover letters, consolidated Markdown report | ✅ Complete |
 | 7 | Checkpoint: validation, portfolio packaging, limitations, next iteration | ✅ Complete |
-| 8 | **Failure taxonomy**: 8 error categories, exception classification | ✅ Complete |
+| 8 | **Failure taxonomy**: error categories and exception classification | ✅ Complete (6 categories today; the ones nothing emitted were removed on Day 23) |
 | 9 | **Resilience**: Retry with exponential backoff (bounded to 3 attempts) | ✅ Complete |
 | 10 | **Reliability**: Timeout enforcement on all external API calls | ✅ Complete |
 | 11 | **Persistence**: JSONL checkpointing after every job step | ✅ Complete |
@@ -101,7 +101,8 @@ Cover letters for recruitment agencies are addressed to the consultant rather th
 | 22 | **Pain point**: `docs/PAIN_POINT.md`, why AI belongs and where it does not, with evidence table and stated limits | ✅ Complete (one placeholder for the author's own numbers) |
 | 23 | **Architecture**: `docs/ARCHITECTURE.md` (diagram, module map, decision records, limits); auth/quota errors stop the run; real attempt counts; OpenAI 400/404 classified; unused failure categories, `prompts.py` and `tiktoken` removed | ✅ Complete |
 | 24 | **Iteration story**: `docs/ITERATION_STORY.md`, eight turning points from the git history, patterns and what is still wrong | ✅ Complete |
-| 25-28 | Pitches, case study assembly, final review | ⏳ Planned |
+| 25 | **Engineer pitch**: `docs/PITCH_ENGINEER.md`, a 10-minute spoken script (about 1,190 words) with a live and an offline demo, Q&A prep and a rehearsal checklist | ✅ Written (recording is the author's) |
+| 26-28 | VP pitch, case study assembly, final review | ⏳ Planned |
 
 ---
 
@@ -155,10 +156,10 @@ Verify everything works:
     # Several queries from a JSON file
     python -m src.job_agent.main --keywords examples/keywords.json --cv private/my_cv.md
 
-    # Use a different model for grounding retries (default: same as --model)
+    # Use a different model for grounding and structure retries (default: same as --model)
     python -m src.job_agent.main "python engineer london" --model gpt-4o-mini --retry-model <stronger-model>
 
-Each run prints its token usage and estimated cost, and the report's summary repeats it.
+Run these from the project root with the virtual environment active. `--max-jobs` defaults to 10. Without `--cv`, letters are written from a generic placeholder profile, not from your experience, so pass `--cv` for real use. Each run prints its token usage and estimated cost, and the report's summary repeats it. If an authentication or quota error stops the run, the CLI says so and prints the command to resume.
 
 ### 2. View the Audit Trail
 
@@ -170,11 +171,17 @@ Each run prints its token usage and estimated cost, and the report's summary rep
     # List any runs that were interrupted and can be resumed
     python -m src.job_agent.main --list-interrupted
 
-    # Resume a specific run
-    python -m src.job_agent.main "python engineer london" --resume --run-id <RUN_ID>
+    # Resume a specific run. The saved query is reused; a different one is refused.
+    # Finished jobs are kept; jobs that failed are tried again.
+    # If the run used a CV, pass --cv again (resume refuses without it, so letters never silently
+    # fall back to the placeholder profile).
+    python -m src.job_agent.main --cv private/my_cv.md --resume --run-id <RUN_ID>
+
+    # With a single interrupted run, --run-id can be left out and it is detected automatically
+    python -m src.job_agent.main --cv private/my_cv.md --resume
 
     # Resume from a specific checkpoint ID
-    python -m src.job_agent.main "python engineer london" --resume-from 2 --run-id <RUN_ID>
+    python -m src.job_agent.main --resume-from 2 --run-id <RUN_ID> --cv private/my_cv.md
 
 ### 4. Read the Generated Report
 
@@ -201,9 +208,18 @@ Each run prints its token usage and estimated cost, and the report's summary rep
     # Re-score a saved run with the current checks (offline, no API calls)
     python -m evals.rescore evals/results/eval_live_<timestamp>.json
 
+    # Induced faults (offline, free): 26 scenarios against the real pipeline with scripted transports
+    python -m evals.stress.faults
+
+    # Live, no CV: how real OpenAI errors classify, and the measured backoff
+    python -m evals.stress.api_errors
+
+    # Live, sends your CV (under $0.05): provokes the grounding and structure guards with the real model
+    python -m evals.stress.guards --cv private/my_cv.md
+
 Reports are written to `evals/results/` (gitignored). Mock results say nothing about the agent itself; only `--live` runs measure it.
 
-**Reasoning models.** `gpt-5` models spend thousands of hidden reasoning tokens before writing (a first comparison run saw `gpt-5-nano` average about 5,900 completion tokens and 49s per call, against about 440 tokens and 4.7s for `gpt-4o-mini`), so the default 60s timeout is too short for them. Set `LLM_TIMEOUT` and optionally `--reasoning-effort` (sent only to `gpt-5*`/o-series models; accepted values depend on the model and are unverified here). Reasoning tokens are logged per call in `llm_usage` events.
+**Reasoning models.** `gpt-5` models spend thousands of hidden reasoning tokens before writing (a first comparison run saw `gpt-5-nano` average about 5,900 completion tokens and 49s per call, against about 440 tokens and 4.7s for `gpt-4o-mini`), so the default 60s timeout is too short for them. Set `LLM_TIMEOUT` and optionally `--reasoning-effort` (sent only to `gpt-5*`/o-series models; accepted values depend on the model; for example `gpt-5.4` rejects `minimal` with a 400). Reasoning tokens are logged per call in `llm_usage` events.
 
 **About the cost numbers.** They are estimates at the list prices in `src/job_agent/pricing.json`, not billing: credits, free tiers and discounts are not reflected, and failed or timed-out attempts report no usage so are not counted. A model missing from the table is reported as unpriced and never guessed. The price table covers only the four models compared and is marked verified by the user; any other model is reported as unpriced. The comparison results are in `docs/MODEL_COMPARISON.md`.
 
@@ -213,15 +229,17 @@ Reports are written to `evals/results/` (gitignored). Mock results say nothing a
 
     job-hunter-agent/
     ├── docs/
+    │   ├── PITCH_ENGINEER.md         # Day 25: 10-minute engineer pitch script, demo, Q&A
     │   ├── ITERATION_STORY.md        # Day 24: What v1 got wrong and how it was fixed
     │   ├── ARCHITECTURE.md           # Day 23: Pipeline, modules, failure handling, decision records
     │   ├── PAIN_POINT.md             # Day 22: Pain point, why AI belongs, evidence and limits
     │   ├── BASELINE.md               # Day 21: Live baseline, results and limits
-    │   ├── baselines/                # Day 21: Committed run summaries (*.summary.json)
+    │   ├── baselines/                # Committed run summaries (*.summary.json) and stress-test result tables
     │   ├── FAILURE_TAXONOMY.md       # Day 20: Failure modes, evidence and gaps
     │   ├── MODEL_COMPARISON.md       # Day 19: Four-model comparison and its limits
     │   └── PROGRESS.md               # Day 14 checkpoint progress report
     ├── evals/
+    │   ├── stress/                   # Day 22: Induced-fault experiments (faults.py offline; guards.py, api_errors.py live)
     │   ├── dataset_schema.py         # Day 15: Golden dataset models
     │   ├── golden_dataset.json       # Day 15: 20 queries (standard, niche, broad, edge, agency)
     │   ├── runner.py                 # Day 16: Mock/live eval runner (python -m evals.runner)
@@ -235,7 +253,7 @@ Reports are written to `evals/results/` (gitignored). Mock results say nothing a
     │   └── fixtures/mock_jobs.json   # Canned jobs for mock mode
     ├── examples/                     # Sample keywords and a dummy CV
     ├── tests/                        # Test suite (run with python -m pytest)
-    │   └── scripts/demo_recovery.sh  # Day 14: Manual recovery demonstration script
+    │   └── scripts/demo_recovery.sh  # Day 14: Manual kill/resume demo (does not pass --cv: add it before real use)
     ├── src/
     │   └── job_agent/
     │       ├── config.py             # Day 10: Centralized timeout configuration
@@ -277,21 +295,25 @@ Reports are written to `evals/results/` (gitignored). Mock results say nothing a
 | **Graceful research failure** | Code | A failed lookup is logged and the letter is written without research; the job still completes |
 | **Structure guard** | Code | A draft with no CV bullets, an empty letter, or raw JSON / a "generation failed" placeholder as the letter is regenerated once; if still defective it is kept and flagged "Review needed". Length is not enforced at runtime: the prompt states the limits (bullets at most 240 characters, letter 160-300 words) and the eval checks them against looser hard limits (`format_rules.py`) |
 | **Grounding guard** | Code | Figures in a generated application must appear in the CV, the posting or the research. Otherwise it is regenerated once with the offending figures named; if it still fails it is kept and flagged "Review needed" in the report. Numbers only: an invented skill without a figure is not caught |
-| **Typed data models** | Code | Pydantic models for jobs, applications and failures. Malformed LLM JSON falls back to raw text rather than failing the run; the format evals detect it |
+| **Typed data models** | Code | Pydantic models for jobs, applications and failures. Malformed or empty LLM output becomes an empty draft rather than failing the run, and the structure guard then regenerates it |
 | **Recruitment agency handling** | Prompt + Code | Letters are addressed to the consultant (prompt instruction); agencies are never researched (name pattern, or posting language such as "our client", in `research_policy.py`) |
 | **Bounded retry** | Code | Exponential backoff (1s, then 2s) capped at 3 attempts |
 | **Timeout enforcement** | Code | Hard limits on all external API calls (LLM: 60s, FreeHire: 15s, DDG: 10s) |
 | **Checkpointing** | Code | State persisted to JSONL after every job step |
 | **Partial completion** | Code | Agent continues processing if individual jobs fail |
+| **Stop on auth or quota errors** | Code | A bad key or exhausted quota would fail every job, so the run stops, keeps what it has and prints the resume command |
 
 ---
 
 ## 🧪 Testing
 
-The test suite (276 tests) covers retry logic, timeout classification, checkpoint save/load, resume scenarios, partial completion, end-to-end recovery, the FreeHire search and research tools, the escalation policy, and the evaluation harness itself. Tests never touch the network: `tests/conftest.py` stubs company research for every test.
+The test suite (279 tests) covers retry logic, timeout classification, checkpoint save/load, resume scenarios, partial completion, end-to-end recovery, the FreeHire search and research tools, the escalation policy, and the evaluation harness itself. Tests never touch the network: `tests/conftest.py` stubs company research for every test.
 
     # Run all tests (use "python -m pytest" so the active environment's pytest is used)
     python -m pytest tests -q
+
+    # Induced-fault scenarios (also part of the suite)
+    python -m evals.stress.faults
 
     # Run the end-to-end recovery demo (shows kill/resume cycle)
     python -m pytest tests/test_recovery_demo.py -v -s
@@ -305,14 +327,14 @@ These are honest, deliberate scope boundaries — not bugs.
 | Limitation | Why | Mitigation Path |
 |-----------|-----|-----------------|
 | **Costs are list-price estimates** | Billing may differ (credits, free tiers); failed attempts report no usage; the price table covers four models | Compare with the actual invoice |
-| **Model routing is a mechanism, not a policy** | Every call uses `--model`; only grounding retries can use a different `--retry-model`, and the Day 19 comparison (`docs/MODEL_COMPARISON.md`) did not justify a change, and could not test a retry model because no grounding retry occurred | Re-run on a larger sample before changing defaults |
+| **Model routing is a mechanism, not a policy** | Every call uses `--model`; only grounding and structure retries can use a different `--retry-model`. The Day 19 comparison (`docs/MODEL_COMPARISON.md`) did not justify a change and predates a prompt change. An induced run on Day 22 confirmed the retry really goes to the retry model (one case), but not that it is better | Re-run the comparison on a larger sample before changing defaults |
 | **UK-only search** | `regions=uk` by default; `FREEHIRE_REGIONS` exists but non-UK values are unverified | Verify other regions; non-UK dataset queries are weak tests until then |
 | **Agency end-clients are not identified; agency detection is heuristic** | FreeHire lists the posting agency as the company. Agencies are recognised by name (“recruit…”, “staffing”, Hays, Ocho...) or by posting language (“our client”, “the client’s office”) | Recognised agencies are not researched and letters address the consultant. A recruiter whose name and posting avoid both signals is treated as a normal company; the language pattern was tuned on 112 saved postings and may flag an employer that writes “our client”. Future: extract the real company |
 | **Research is search snippets only** | Cheap and fast; no page fetching or summarisation | Snippets are filtered for ads and capped at 3 results |
 | **Grounding covers numbers only** | Deterministic and free, at runtime and in the evals | An invented employer or skill without a figure would not be caught. A future LLM-judge check could cover this |
 | **Resume re-attempts deterministic failures** | Since Day 22 `--resume` retries failed jobs (found by an induced fault); a job that can never succeed is tried once per resume | See `docs/FAILURE_TAXONOMY.md` Part 4 |
-| **Letters run short of the prompt target** | In the Day 21 run letters averaged 173 words, none in the old 220-300 target; gpt-4o-mini ignores numeric word targets. The target is now 160-300, unmeasured | Re-measure on the next live run |
-| **Eval baseline is small** | Live runs cost money | Day 21 baseline (18/20 as run, 19/20 re-scored) is in `docs/BASELINE.md`; it is one run of 34 jobs. The guards did not fire in it, and letters came out shorter than the prompt asked |
+| **Letters run short of any numeric word target** | `gpt-4o-mini` writes about 173 words whatever the prompt says (Day 21 and Day 22 runs, 68 letters). The target was lowered to 160-300 to match; in the Day 22 run 2 of 34 letters were still under the 150-word floor of the eval | A structure retry for short letters, or a model that follows length instructions |
+| **Eval baseline is small** | Live runs cost money | The latest run (Day 22, 17/20 as run, 18/20 re-scored) and the Day 21 run (18/20, 19/20) are in `docs/BASELINE.md`: 34 jobs each, and the spread between identical runs is about two queries. The guards never fired on their own in them; they were exercised on purpose (induced) on Day 22 |
 | **Single LLM provider** | OpenAI only for now | Architecture centralises all LLM calls behind `llm_client.py`. Swapping providers requires changing one file. |
 | **Cover letters are drafts, not final** | LLM-generated text requires human review | The report is a starting point. Every letter should be reviewed before sending. |
 
@@ -321,7 +343,7 @@ These are honest, deliberate scope boundaries — not bugs.
 ## 🔮 Next Iteration Roadmap
 
 1. **Backoff ignores `Retry-After`** (see `docs/FAILURE_TAXONOMY.md`).
-2. **Week 4 case study documents** (Days 25-28) — pitches, assembly, final review.
+2. **Week 4 case study documents** (Days 26-28) — VP pitch, assembly, final review.
 3. **Re-run the model comparison** on the current prompt to test the retry-model question.
 4. **End-client extraction** — Parse job descriptions to identify the actual hiring company when the listing is from a recruitment agency.
 5. **Human-in-the-loop approval** — Pause before generating cover letters so the candidate can approve the selected jobs.

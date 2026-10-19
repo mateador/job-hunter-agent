@@ -64,7 +64,7 @@ At most three LLM calls per job: draft, structure retry, grounding retry. Jobs a
 ## State and recovery
 
 - **Checkpoint:** one JSONL line per save, holding the query, the jobs found, the ids processed, the applications, the failed jobs and a status. Saved after the search, after every job (success or failure) and at the end. Append-only, so a crash cannot corrupt earlier lines; a corrupted line is skipped on load.
-- **Resume** (`--resume --run-id X`) reloads the latest valid checkpoint, does not search again, skips finished jobs, **retries previously failed jobs**, and processes the rest. A query that differs from the checkpoint's is refused. Runs with a status other than `completed` (including `partial`) are listed by `--list-interrupted`.
+- **Resume** (`--resume --run-id X`) reloads the latest valid checkpoint, does not search again, skips finished jobs, **retries previously failed jobs**, and processes the rest. A missing query reuses the saved one, a different query is refused, and a run that used a CV is refused unless `--cv` is passed again (otherwise the remaining letters would silently come from the placeholder profile). Runs with a status other than `completed` (including `partial`) are listed by `--list-interrupted`.
 - **Lost on resume:** usage figures, research decisions and the research cache are not checkpointed. A resumed run's cost line covers only the resumed part.
 - **Evidence:** `kill -9` inside job 3 of 4, then resume: jobs 1-2 kept, no new search, jobs 3-4 generated, no duplicates (**Induced**, scenario B6).
 

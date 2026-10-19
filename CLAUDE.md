@@ -3,7 +3,7 @@
 30-Day Forward Deployed Software Engineer (FDSE) case study. Goal: an observable, resilient AI workflow that searches jobs, researches companies, matches a CV, and drafts tailored applications, ending in a defensible engineering case study. Core value: survives crashes, resumes from checkpoints, delivers partial results when jobs fail, keeps a full audit trail, and is measured by evals.
 
 ## Where we are (read this first when resuming)
-- **Status:** Day 24 of 30 complete (`docs/ITERATION_STORY.md`, third person, eight turning points with commit hashes; also corrected PROGRESS.md's Day 18 note). **Next: Day 25** (engineer pitch: a 10-minute spoken script; reuse ARCHITECTURE.md decisions and ITERATION_STORY.md), then 26 VP pitch (5 min, business framing: `docs/PAIN_POINT.md`), 27 case study assembly, 28 final review and GitHub polish. Day 22 left one HTML-comment TODO in `docs/PAIN_POINT.md` for the author's own job-search numbers (not invented). Day 23-24 work is uncommitted unless the user says otherwise.
+- **Status:** Day 25 of 30 written (`docs/PITCH_ENGINEER.md`: ~1,190 spoken words = ~9 min, live demo `python -m src.job_agent.main "python engineer london" --cv private/alexandre_cv.md --max-jobs 2` + `view_trace --narrative`, offline fallback `python -m evals.stress.faults --only B6,B7a,B3b`, Q&A table, timing table to fill). The user still has to rehearse and record it. `tests/scripts/demo_recovery.sh` (Day 14) does not pass `--cv`: do not use it as is. **Next: Day 26** (VP pitch, 5 minutes, business framing: pain, cost, risk, what it proves; reuse `docs/PAIN_POINT.md`), then 27 case study assembly, 28 final review and GitHub polish. `docs/PAIN_POINT.md` still has one HTML-comment TODO for the author's own job-search numbers (not invented). The user commits; Day 25 files are uncommitted.
 - **Git:** the user committed all Day 19-21 work before pausing the project (2026-10-09). Run `git status` and `git log --oneline` to confirm. The user commits; never commit without being asked.
 - **Day 20 done:** (1) `docs/FAILURE_TAXONOMY.md` rewritten as a failure-mode document with evidence labels; the old one described the removed loop. Real organic failure data is nearly empty (live eval era: 0 failed attempts; the 52 "Connection error." job failures are from development sessions). (2) Agency-language signal in `research_policy.py` (`agency_posting` reason; 5 new scenarios, 19 total; replayed on 112 saved postings: caught Huxley, Intec, SThree, remotestar that the name check missed; tuned on that same sample, no live re-measure). (3) `FREEHIRE_REGIONS` env var (default `uk`); non-UK values are unverified, so edge-04 still only tests the empty path. (4) Bug fix: `classify_exception` used `if exception.response`, falsy for 4xx/5xx, so real HTTP errors were all `UNKNOWN`. (5) Then made 429/500/504, `requests.ConnectionError`, non-JSON bodies, `openai.RateLimitError` and 5xx retryable (`RETRY_SAME`, 1s/2s backoff, no `Retry-After`); `insufficient_quota` is `MANUAL_INTERVENTION`. Unit-tested only.
 - **Day 23 code changes (all tested; induced faults 26/26 match, 276 tests):** (1) auth/quota errors (`AUTH_ERROR` or `MANUAL_INTERVENTION`) STOP the run after recording the job: `run_aborted` event, `aborted_reason` in the result, CLI message with the resume command; remaining jobs stay unprocessed so `--resume` finishes them. (2) `FailedJob.attempt_number` is the real count (`retry.py` stamps `retry_attempts` on the exception). (3) OpenAI 400/404/422 -> `MALFORMED_RESPONSE`/`NOT_RETRYABLE` (was `UNKNOWN`). (4) Removed the three never-emitted categories (taxonomy now 6, a test pins it), `prompts.py` and the `tiktoken` dependency. Earlier fixes: Day 22 `--resume` retries failed jobs (B7a); `content=None` goes to the structure guard (B2f). Backoff still ignores `Retry-After`.
@@ -28,7 +28,7 @@ The user runs everything in their own terminal with the project venv. If the ven
 ```bash
 python3 -m venv --clear .venv && source .venv/bin/activate
 pip install -e . pytest          # OPENAI_API_KEY in .env or exported
-python -m pytest tests -q        # 276 tests; use "python -m pytest", bare pytest can resolve to ~/.local
+python -m pytest tests -q        # 279 tests; use "python -m pytest", bare pytest can resolve to ~/.local
 python3 -m src.job_agent.main "Forward Deployed Engineer" --cv private/alexandre_cv.md --max-jobs 1
 python3 -m src.job_agent.main --keywords examples/keywords.json --cv private/alexandre_cv.md
 python3 -m src.job_agent.main "q" --resume --run-id <ID>   # also --list-interrupted, --retry-model, --verbose
@@ -71,6 +71,7 @@ Gitignored: `private/` (real CV), `reports/`, `checkpoints/`, `traces/`, `evals/
 - Earlier live runs found and led to fixes for: FreeHire ignoring the query, blank-query generating applications for random jobs, "no results" counted as failure.
 
 ## Known gaps
+- **Fixed (after the Day 25 README audit):** `--resume` without a query now reuses the saved query (a different query is still refused), and resuming a run that used a CV without `--cv` is refused with a clear message (it would otherwise silently write the remaining letters from the placeholder profile). Tests in `tests/test_resume.py` (mutation-checked). Not yet run end to end from the CLI against a real interrupted run.
 - Agency detection is name- plus posting-language-based (narrow regex tuned on 112 saved postings; misses postings like Talent International's "technology consultancy"); no letter-level agency eval.
 - UK-only search; non-UK dataset queries are weak tests.
 - Grounding covers numbers only; relevance is keyword-on-title; small, noisy live samples (one run, non-deterministic model).
@@ -81,7 +82,7 @@ Gitignored: `private/` (real CV), `reports/`, `checkpoints/`, `traces/`, `evals/
 
 ## Roadmap
 - Week 3: 16-21 done (21 = Week 3 checkpoint, `docs/BASELINE.md`).
-- Week 4: 22 pain-point doc (done), 23 architecture doc (done), 24 iteration story (done), 25 engineer pitch, 26 VP pitch, 27 case study assembly, 28 final review and GitHub polish.
+- Week 4: 22 pain-point doc (done), 23 architecture doc (done), 24 iteration story (done), 25 engineer pitch (done: script), 26 VP pitch, 27 case study assembly, 28 final review and GitHub polish.
 
 ## Conventions and lessons
 - Preserve public symbols when replacing files (the Day 11 rewrite silently dropped features; check git history before assuming a feature exists).

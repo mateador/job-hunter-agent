@@ -175,3 +175,61 @@ def test_resume_query_mismatch(tmp_path, monkeypatch):
 
     with pytest.raises(ResumeError, match="Query mismatch"):
         runner.run(query="different query", resume=True)
+
+# ── Resuming without repeating the query or the CV ──
+
+def _interrupted_run(tmp_path, monkeypatch, cv_text=None):
+    """Run 2 jobs where the second fails with a bad key, leaving a resumable checkpoint."""
+    from unittest.mock import patch
+    from src.job_agent.agent_runner import AgentRunner
+    from src.job_agent.audit_logger import AuditLogger
+    from src.job_agent.models import Application
+
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+    listing = [{"id": f"j{i}", "title": f"Job {i}", "company": f"C{i}"} for i in (1, 2)]
+
+    def make(cv=cv_text):
+        return AgentRunner(
+            audit_logger=AuditLogger(trace_dir=str(tmp_path / "traces")),
+            checkpoint_manager=CheckpointManager(checkpoint_dir=str(tmp_path / "cp"), run_id="r1"),
+            max_jobs=2, cv_text=cv)
+
+    def first_run(job, llm_client, audit_logger, **kwargs):
+        if job.id == "j2":
+            raise ValueError("transient")
+        return Application(job_id=job.id, cover_letter="letter", cv_bullets=["bullet"])
+
+    with patch("src.job_agent.agent_runner.search_freehire", return_value=listing), \
+            patch("src.job_agent.agent_runner.generate_application", side_effect=first_run):
+        assert make().run("python engineer london")["status"] == "partial"
+    return make, listing
+
+
+def test_resume_without_a_query_uses_the_saved_query(tmp_path, monkeypatch):
+    from unittest.mock import patch
+    from src.job_agent.models import Application
+    make, listing = _interrupted_run(tmp_path, monkeypatch)
+
+    def healthy(job, llm_client, audit_logger, **kwargs):
+        return Application(job_id=job.id, cover_letter="letter", cv_bullets=["bullet"])
+
+    with patch("src.job_agent.agent_runner.search_freehire", side_effect=AssertionError("no new search")), \
+            patch("src.job_agent.agent_runner.generate_application", side_effect=healthy):
+        result = make().run("", resume=True)
+
+    assert result["query"] == "python engineer london"
+    assert result["status"] == "completed"
+
+
+def test_resume_with_a_different_query_is_still_refused(tmp_path, monkeypatch):
+    from src.job_agent.agent_runner import ResumeError
+    make, _ = _interrupted_run(tmp_path, monkeypatch)
+    with pytest.raises(ResumeError, match="Query mismatch"):
+        make().run("rust engineer", resume=True)
+
+
+def test_resume_without_the_cv_is_refused_when_the_run_used_one(tmp_path, monkeypatch):
+    from src.job_agent.agent_runner import ResumeError
+    make, _ = _interrupted_run(tmp_path, monkeypatch, cv_text="Built things in Python.")
+    with pytest.raises(ResumeError, match="--cv"):
+        make(cv=None).run("", resume=True)

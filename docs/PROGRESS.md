@@ -161,7 +161,7 @@ We've built a resilient, observable AI agent for job hunting that can survive cr
 - **Day 22:** Pain point + why AI belongs (done: `docs/PAIN_POINT.md`, a page plus evidence table; one TODO left for the author's own job-search numbers; `--resume` and unused failure categories documented as known gaps, decision on Day 23; plus a live re-run `eval_live_20261019_162521`: 17/20 as run, recorded in `docs/BASELINE.md`)
 - **Day 23:** Architecture + decisions doc (done: `docs/ARCHITECTURE.md`; code changes: run stops on auth/quota errors, real `attempt_number`, OpenAI 400/404/422 classified, unused failure categories / `prompts.py` / `tiktoken` removed)
 - **Day 24:** Iteration story (what v1 got wrong, how it was fixed) (done: `docs/ITERATION_STORY.md`)
-- **Day 25:** Engineer pitch rehearsal (10-min recording)
+- **Day 25:** Engineer pitch rehearsal (10-min recording) (done: script in `docs/PITCH_ENGINEER.md`; the recording and timing runs are the author's)
 - **Day 26:** VP pitch rehearsal (5-min recording)
 - **Day 27:** Case study assembly
 - **Day 28:** Final review + publication to GitHub
