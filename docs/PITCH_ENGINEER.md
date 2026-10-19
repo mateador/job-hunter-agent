@@ -4,11 +4,13 @@ Audience: a senior engineer who has not heard the story. Plain paragraphs are wh
 
 ## Before recording
 
-> **Pre-flight (5 minutes).** Venv active (`source .venv/bin/activate`), `OPENAI_API_KEY` set, network up, `python -m pytest tests -q` green (279 tests). Three terminals: A for the demo commands, B showing `docs/ARCHITECTURE.md` (the mermaid diagram rendered on GitHub or in the editor), C empty for a fallback. Clear `reports/` so the report you open is the new one. Increase the terminal font. Do one dry run of the live command below; it costs about $0.001 and sends the CV to OpenAI.
+> **Pre-flight (5 minutes).** Venv active (`source .venv/bin/activate`), `OPENAI_API_KEY` set, network up, `python -m pytest tests -q` green (284 tests). Three terminals: A for the demo commands, B showing `docs/ARCHITECTURE.md` (the mermaid diagram rendered on GitHub or in the editor), C empty for a fallback. Clear `reports/` so the report you open is the new one. Increase the terminal font. Do one dry run of the live command below; it costs about $0.001 and sends the CV to OpenAI.
 >
 > **Live command:** `python -m src.job_agent.main "python engineer london" --cv private/alexandre_cv.md --max-jobs 2`, then `python -m src.job_agent.view_trace --narrative`. Skip `--cv` and the letters will come from a placeholder profile. That is exactly the bug from Days 11 to 14.
 >
 > **Fallback if the network or FreeHire fails on camera:** say so, switch to terminal C and run only the offline demo (`python -m evals.stress.faults --only B6,B7a,B3b`). It is deterministic and takes a few seconds.
+>
+> **Stay inside what the project shows.** The target role asks for Azure, Kubernetes, REST API and SDK design and versioning, OAuth2/OIDC/RBAC, privacy-by-design, .NET, Scrum and mentoring. This project has none of that. The limits section says so in one sentence, and the Q&A rows below give design intent clearly marked as not built. Answer experience questions from your real background, not from this repository.
 >
 > `tests/scripts/demo_recovery.sh` is an interactive kill and resume demo from Day 14. It does not pass `--cv`, so do not use it as is.
 
@@ -17,6 +19,8 @@ Audience: a senior engineer who has not heard the story. Plain paragraphs are wh
 I want to show you a system I built to write job applications, and mostly I want to tell you how I came to trust it, and where I still don't.
 
 The task is real. A good application means searching several sources, reading the posting, researching the company, matching my CV, and writing a letter that says something true. A language model can do the writing. What it can also do is invent a figure on my CV, address a recruiter as if they were the employer, or hand back something broken and call it finished.
+
+The word for the interesting part is harness engineering: the code around the model that makes it dependable, which here is most of the code.
 
 So the claim is narrow on purpose. This pipeline drafts quickly and cheaply, and when it can't be trusted it says so, instead of failing quietly. The rest of the talk is the evidence for that sentence, and what the evidence doesn't cover.
 
@@ -74,11 +78,11 @@ The pattern is that green didn't mean working, and the fixes came from running t
 
 ## 9:00 to 10:00 — Limits and next
 
-Here is what I don't claim. The grounding check covers numbers only, so an invented skill without a figure gets through. The guards worked every time I provoked them with the live model, but in sixty-eight evaluation applications the model never triggered them on its own, so I can't give you a real rate. Agency detection is a heuristic. The pass rate moves by about two queries of twenty between identical runs. And every letter still needs a human to read it.
+Here is what I don't claim. The grounding check covers numbers only, so an invented skill without a figure gets through. The guards worked every time I provoked them with the live model, but in sixty-eight evaluation applications the model never triggered them on its own, so I can't give you a real rate. Agency detection is a heuristic. The pass rate moves by about two queries of twenty between identical runs. And every letter still needs a human to read it. It is also a command-line prototype: no REST API or SDK, no authentication or access control, no privacy review, and nothing on Azure or Kubernetes. Preparing this talk I found that the audit trail stored every prompt in full, my CV included. That is fixed: it now logs lengths and a hash. The generated letters still sit in the checkpoint and report files.
 
-What I'd do next is an LLM-judge check for invented claims that have no figure, and a larger live sample to put a real number on how often the model fails unprompted.
+What I'd do next is turn it into a service: a versioned API, authentication, redacted tracing and concurrency. And an LLM-judge check for invented claims that have no figure, with a larger live sample for a real failure rate.
 
-The whole thing is about two thousand six hundred lines of Python, two hundred seventy-nine tests, a failure document where every row says how it was observed, and a record of every mistake in this talk. Thank you.
+The whole thing is about two thousand six hundred lines of Python, two hundred eighty-four tests, a failure document where every row says how it was observed, and a record of every mistake in this talk. Thank you.
 
 ## Q&A prep (not part of the 10 minutes)
 
@@ -89,7 +93,13 @@ The whole thing is about two thousand six hundred lines of Python, two hundred s
 | What stops it fabricating? | Nothing absolute. A numeric grounding check plus a prompt rule, plus a human reading | Numbers only. One real fabrication was caught by the eval, not at runtime, before the guard existed |
 | Why `gpt-4o-mini`? | It passed 6/6 in the Day 19 comparison at the lowest cost; `gpt-4.1-mini` also passed at 2.85 times the cost, the gpt-5 models 3/6 | The comparison predates a prompt change; the retry-model question is open |
 | What does it cost? | About $0.0005 per application at list price | An estimate, not billing; failed attempts report no usage |
-| What happens at 1,000 jobs? | Not tested. It is sequential at roughly 4 seconds a job, and the search takes one page of results | No pagination, no deduplication across runs. I would add concurrency and a job queue first |
+| What happens at 1,000 jobs? Would it work as a platform service? | Not tested. It is sequential at roughly 4 seconds a job, and the search takes one page of results. As a service the first changes are concurrency, a job queue, a real store instead of JSONL files, and tenancy | No pagination, no deduplication across runs. None of the service parts is built |
+| How would you expose it as a REST API? | Design intent, not built: `POST /v1/applications` accepting a search and a CV reference, returning a job id; `GET /v1/applications/{id}` for status and results; idempotency keys; an OpenAPI spec; a version in the path and a deprecation policy; async because a run takes seconds to minutes | The checkpoint state and the result object already look like the resource. No API code exists |
+| How would you secure it (OAuth2, OIDC, RBAC)? | Design intent, not built: OIDC for users, OAuth2 client credentials for service-to-service, roles per tenant, the CV never stored by default, prompts redacted in traces, retention limits | Today: the CV is gitignored and the key is an environment variable. The audit trail used to store full prompts, CV included; it now logs only lengths and a hash (tested). Checkpoints and reports still hold the generated letters, and there are no retention rules, no access control and no threat model |
+| Azure, Kubernetes, .NET? | Not in this project: Python on a laptop. Answer from your CV and say so plainly | The repo's CV lists Azure at a foundational level, and the model once invented an Azure-lead claim from it, so do not overstate it |
+| What is "harness engineering"? | The code that makes a model dependable: orchestration, checks, retries, state, evals, fault injection, cost tracking | The term is the posting's. This is my reading of it |
+| How did you use AI coding tools, and how did you verify the output? | Answer in your own words. The checkable evidence is in the repo: tests, induced faults, the bugs caught in review and the decision records | Don't claim a process you didn't follow |
+| Mentoring, code review, Scrum? | Not evidenced by the project. What it shows: decisions written as records and every claim labelled, which is what a reviewer needs | Give examples from your real experience |
 | Why JSONL and not a database? | Append-only survives a crash, readable with `tail` and `grep` | No queries; fine at this scale |
 | How do you handle rate limits? | Retry with 1s and 2s backoff, three attempts | `Retry-After` is not honoured, so a sustained rate limit still fails the job |
 | Why is the research rule so simple? | It is cheap, explainable and testable; the threshold sits in an empty gap in the data | It missed two agencies (Eden Scott, RecOps); the model compensated in both cases. A weak spot, not a solved one |

@@ -49,6 +49,9 @@ Both were reproduced, fixed and pinned by tests. On Day 23 the same exercise led
 ### 8. The measuring instrument was also wrong
 Two of the addressing check's failures on real letters were false positives: the company field held a slug (`foundationhealthcareers`, then `Hsogroupbv`) while the letter correctly used the trading name, and a letter addressed to a named consultant was not recognised. Each was fixed and re-scored on the same data, which is stated as a limit in the baseline, because a fix made after seeing the failures proves the check, not a fresh measurement.
 
+### 9. The audit trail stored the CV (found and fixed on Day 26)
+While preparing a security answer for the pitch, a real trace file was opened and the full prompt, CV text included, was in it: the retry layer logged its keyword arguments, and the arguments of a model call are its messages. Traces are gitignored, so nothing had leaked, but an audit trail that holds private data is not something a service could keep. It now logs only a length and a short hash for long strings and chat messages, and a test fails if the CV or the posting text reaches the trace. Traces written before the fix still contain the CV, and checkpoints and reports still hold the generated letters.
+
 ## What the failures have in common
 
 1. **Green did not mean working.** The Day 14 demo, mock mode, truthy mock responses and the tests that asserted the resume bug all passed while the behaviour was wrong. Mock results validate the harness; only live runs measure the agent.

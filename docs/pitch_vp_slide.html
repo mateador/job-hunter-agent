@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Reliable AI drafting</title>
+<style>
+  :root {
+    --bg: #f7f7f5; --surface: #ffffff; --ink: #1d2433; --muted: #5d6679; --line: #d9dce3;
+    --accent: #1f6feb; --ok: #1a7f4b; --warn: #a15c00; --chip: #eef2fb;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #12151c; --surface: #1a1f2a; --ink: #e8ebf2; --muted: #9aa3b5; --line: #2c3342;
+      --accent: #6aa3ff; --ok: #4cc38a; --warn: #f0b04a; --chip: #212a3d;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #12151c; --surface: #1a1f2a; --ink: #e8ebf2; --muted: #9aa3b5; --line: #2c3342;
+    --accent: #6aa3ff; --ok: #4cc38a; --warn: #f0b04a; --chip: #212a3d;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink);
+         font: 16px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  main { max-width: 1280px; margin: 0 auto; padding: 32px 24px 24px; }
+  h1 { font-size: clamp(26px, 3.2vw, 40px); margin: 0 0 4px; letter-spacing: -0.01em; }
+  .sub { color: var(--muted); margin: 0 0 24px; font-size: clamp(15px, 1.6vw, 19px); }
+  .grid { display: grid; grid-template-columns: 1fr 1.25fr; gap: 24px; align-items: start; }
+  @media (max-width: 860px) { .grid { grid-template-columns: 1fr; } }
+  .card { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 20px; }
+  h2 { font-size: 15px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); margin: 0 0 14px; }
+  ol.flow { list-style: none; margin: 0; padding: 0; }
+  ol.flow li { position: relative; padding: 10px 12px 10px 14px; margin: 0 0 18px; border: 1px solid var(--line);
+               border-left: 4px solid var(--accent); border-radius: 8px; background: var(--chip); }
+  ol.flow li:last-child { margin-bottom: 0; }
+  ol.flow li:not(:last-child)::after { content: "↓"; position: absolute; left: 50%; bottom: -19px; color: var(--muted); }
+  ol.flow b { display: block; font-size: 16px; }
+  ol.flow span { color: var(--muted); font-size: 14px; }
+  li.guard { border-left-color: var(--ok); }
+  .note { margin-top: 16px; font-size: 14px; color: var(--muted); }
+  table { width: 100%; border-collapse: collapse; font-size: 15px; }
+  th { text-align: left; font-size: 13px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted);
+       border-bottom: 1px solid var(--line); padding: 0 8px 8px 0; }
+  td { padding: 10px 8px 10px 0; border-bottom: 1px solid var(--line); vertical-align: top; }
+  tr:last-child td { border-bottom: 0; }
+  td.num { font-weight: 700; white-space: nowrap; font-variant-numeric: tabular-nums; }
+  .tag { display: inline-block; font-size: 12px; padding: 2px 8px; border-radius: 999px; background: var(--chip);
+         border: 1px solid var(--line); color: var(--muted); white-space: nowrap; }
+  .tag.induced { color: var(--warn); }
+  .tag.live { color: var(--ok); }
+  footer { margin-top: 20px; padding: 14px 18px; border: 1px dashed var(--line); border-radius: 10px;
+           color: var(--muted); font-size: 15px; }
+  footer b { color: var(--ink); }
+</style>
+</head>
+<body>
+<main>
+  <h1>An AI workflow built to fail safely</h1>
+  <p class="sub">Drafts job applications for about a twentieth of a cent each, and says so when it can't be trusted.</p>
+
+  <div class="grid">
+    <section class="card" aria-label="Pipeline">
+      <h2>How it works</h2>
+      <ol class="flow">
+        <li><b>Search</b><span>Retries transient errors; stops cleanly if it can't</span></li>
+        <li><b>Research rule (code, not the model)</b><span>Look the company up only when the posting is thin</span></li>
+        <li><b>Draft (one model call)</b><span>Bullets and cover letter from the CV and the posting</span></li>
+        <li class="guard"><b>Check 1: structure</b><span>Empty or broken output is regenerated once, then flagged</span></li>
+        <li class="guard"><b>Check 2: grounding</b><span>Every figure must come from the CV, posting or research</span></li>
+        <li><b>Save state</b><span>Resume after a crash; one failed job doesn't lose the others</span></li>
+      </ol>
+      <p class="note">Every step is written to an audit trail. A bad key or exhausted quota stops the run instead of burning calls.</p>
+    </section>
+
+    <section class="card" aria-label="Evidence">
+      <h2>Evidence, and how each number was obtained</h2>
+      <table>
+        <thead><tr><th>Measure</th><th>Result</th><th>Basis</th></tr></thead>
+        <tbody>
+          <tr><td>Cost per draft</td><td class="num">≈ $0.0005</td><td><span class="tag">estimate, list price</span></td></tr>
+          <tr><td>Time per query (2 jobs)</td><td class="num">8–9 s</td><td><span class="tag live">measured, live</span></td></tr>
+          <tr><td>Test queries passing</td><td class="num">17–19 of 20</td><td><span class="tag live">measured, live</span> runs differ by ~2</td></tr>
+          <tr><td>Provoked failures handled</td><td class="num">26 of 26</td><td><span class="tag induced">induced</span></td></tr>
+          <tr><td>Checks when the live model is told to break the rules</td><td class="num">caught and fixed every time<br><small>figures 3/3 · empty output 6/6</small></td><td><span class="tag induced">induced</span></td></tr>
+          <tr><td>Invented figures, no prompting</td><td class="num">0 in 68 drafts</td><td><span class="tag live">measured, live</span> real rate unknown</td></tr>
+        </tbody>
+      </table>
+    </section>
+  </div>
+
+  <footer><b>Not shown:</b> a public API or SDK, Azure or Kubernetes deployment, OAuth2 / RBAC, a privacy or security review. The figure check covers numbers only, not invented skills. Every letter still needs a human read.</footer>
+</main>
+</body>
+</html>

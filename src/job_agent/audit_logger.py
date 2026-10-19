@@ -1,7 +1,35 @@
+import hashlib
 import json
 from datetime import datetime
 from typing import Any, Dict, Optional
 from pathlib import Path
+
+# Strings longer than this are not written to the trace: prompts carry the candidate's CV.
+MAX_LOGGED_CHARS = 200
+
+
+def _fingerprint(text: str) -> Dict[str, Any]:
+    return {"chars": len(text), "sha256": hashlib.sha256(text.encode("utf-8")).hexdigest()[:12]}
+
+
+def redact_for_log(value: Any) -> Any:
+    """A copy of `value` that is safe to write to the trace.
+
+    The trace must show what was called and with which small parameters (query, limit), but never
+    the content of a prompt: it contains the CV. Long strings become {chars, sha256-prefix} (enough
+    to see that two calls sent the same text), and chat messages keep only their role and that
+    fingerprint. Numbers, booleans and short strings are kept as they are.
+    """
+    if isinstance(value, str):
+        return value if len(value) <= MAX_LOGGED_CHARS else _fingerprint(value)
+    if isinstance(value, dict):
+        if "role" in value and isinstance(value.get("content"), str):
+            return {"role": value["role"], "content": _fingerprint(value["content"])}
+        return {k: redact_for_log(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [redact_for_log(v) for v in value]
+    return value
+
 
 class AuditLogger:
     def __init__(self, trace_dir: str = "traces"):

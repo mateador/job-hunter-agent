@@ -146,6 +146,7 @@ Three categories existed that nothing ever produced (`MISSING_DATA`, `PARTIAL_CO
 - **Sequential processing;** a 20-job run takes minutes, not seconds.
 - **Grounding covers numbers only;** relevance is keyword matching on titles; the golden dataset's keywords are hand-written guesses.
 - **One CV, one model, small non-deterministic samples** (34 jobs per run).
+- **Privacy:** the audit trail used to store every prompt in full, CV included. Since Day 26 `redact_for_log` replaces long strings and chat messages with their length and a 12-character hash before anything is written (a test fails if the CV or the posting text reaches the trace). Still open: checkpoints and reports contain the generated letters, which are derived from the CV; traces written before the fix still contain it; there are no retention rules, access control or threat model. The CV is also sent to the model provider by design.
 - **Cover letters need human review.** The guards narrow the risk and say so when they cannot clear it.
 - The model writes about 173 words regardless of the numeric target in the prompt; the target was lowered to match, and 2 of 34 letters in the latest run were under the 150-word floor.
 

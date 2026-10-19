@@ -2,9 +2,9 @@
 
 [![Python](https://img.shields.io/badge/Python-3.10+-blue.svg)](https://www.python.org/)
 [![LLM](https://img.shields.io/badge/LLM-OpenAI%20GPT--4o--mini-green.svg)](https://platform.openai.com/)
-[![Status](https://img.shields.io/badge/Status-Day%2025%20of%2030-yellow.svg)](#)
+[![Status](https://img.shields.io/badge/Status-Day%2026%20of%2030-yellow.svg)](#)
 
-An observable, resilient agentic workflow that automates job research, CV matching, and tailored application drafting. Built as a 30-day portfolio case study (Day 25 of 30 complete) to demonstrate reliable AI workflows with full execution transparency, crash recovery, partial completion guarantees, and measurable evaluation.
+An observable, resilient agentic workflow that automates job research, CV matching, and tailored application drafting. Built as a 30-day portfolio case study (Day 26 of 30 complete) to demonstrate reliable AI workflows with full execution transparency, crash recovery, partial completion guarantees, and measurable evaluation.
 
 ---
 
@@ -102,7 +102,8 @@ Cover letters for recruitment agencies are addressed to the consultant rather th
 | 23 | **Architecture**: `docs/ARCHITECTURE.md` (diagram, module map, decision records, limits); auth/quota errors stop the run; real attempt counts; OpenAI 400/404 classified; unused failure categories, `prompts.py` and `tiktoken` removed | ✅ Complete |
 | 24 | **Iteration story**: `docs/ITERATION_STORY.md`, eight turning points from the git history, patterns and what is still wrong | ✅ Complete |
 | 25 | **Engineer pitch**: `docs/PITCH_ENGINEER.md`, a 10-minute spoken script (about 1,190 words) with a live and an offline demo, Q&A prep and a rehearsal checklist | ✅ Written (recording is the author's) |
-| 26-28 | VP pitch, case study assembly, final review | ⏳ Planned |
+| 26 | **VP pitch**: `docs/PITCH_VP.md`, a 5-minute spoken script (about 650 words) for a hiring VP of the Core AI Services team (job description in hand), with a one-slide visual (`docs/pitch_vp_slide.html`) and Q&A prep | ✅ Written (recording is the author's) |
+| 27-28 | Case study assembly, final review | ⏳ Planned |
 
 ---
 
@@ -229,6 +230,8 @@ Reports are written to `evals/results/` (gitignored). Mock results say nothing a
 
     job-hunter-agent/
     ├── docs/
+    │   ├── PITCH_VP.md               # Day 26: 5-minute VP pitch script and Q&A
+    │   ├── pitch_vp_slide.html       # Day 26: The one slide for the VP pitch
     │   ├── PITCH_ENGINEER.md         # Day 25: 10-minute engineer pitch script, demo, Q&A
     │   ├── ITERATION_STORY.md        # Day 24: What v1 got wrong and how it was fixed
     │   ├── ARCHITECTURE.md           # Day 23: Pipeline, modules, failure handling, decision records
@@ -307,7 +310,7 @@ Reports are written to `evals/results/` (gitignored). Mock results say nothing a
 
 ## 🧪 Testing
 
-The test suite (279 tests) covers retry logic, timeout classification, checkpoint save/load, resume scenarios, partial completion, end-to-end recovery, the FreeHire search and research tools, the escalation policy, and the evaluation harness itself. Tests never touch the network: `tests/conftest.py` stubs company research for every test.
+The test suite (284 tests) covers retry logic, timeout classification, checkpoint save/load, resume scenarios, partial completion, end-to-end recovery, the FreeHire search and research tools, the escalation policy, and the evaluation harness itself. Tests never touch the network: `tests/conftest.py` stubs company research for every test.
 
     # Run all tests (use "python -m pytest" so the active environment's pytest is used)
     python -m pytest tests -q
@@ -336,6 +339,7 @@ These are honest, deliberate scope boundaries — not bugs.
 | **Letters run short of any numeric word target** | `gpt-4o-mini` writes about 173 words whatever the prompt says (Day 21 and Day 22 runs, 68 letters). The target was lowered to 160-300 to match; in the Day 22 run 2 of 34 letters were still under the 150-word floor of the eval | A structure retry for short letters, or a model that follows length instructions |
 | **Eval baseline is small** | Live runs cost money | The latest run (Day 22, 17/20 as run, 18/20 re-scored) and the Day 21 run (18/20, 19/20) are in `docs/BASELINE.md`: 34 jobs each, and the spread between identical runs is about two queries. The guards never fired on their own in them; they were exercised on purpose (induced) on Day 22 |
 | **Single LLM provider** | OpenAI only for now | Architecture centralises all LLM calls behind `llm_client.py`. Swapping providers requires changing one file. |
+| **Privacy: generated letters and old traces** | Since Day 26 the audit trail logs only lengths and a hash of each prompt, never the CV (tested). Checkpoints and reports still hold the generated letters, traces written before the fix still hold the full prompts, and there are no retention rules or access control | Delete old `traces/` files if they should not keep the CV; retention and access control are not built |
 | **Cover letters are drafts, not final** | LLM-generated text requires human review | The report is a starting point. Every letter should be reviewed before sending. |
 
 ---
@@ -343,7 +347,7 @@ These are honest, deliberate scope boundaries — not bugs.
 ## 🔮 Next Iteration Roadmap
 
 1. **Backoff ignores `Retry-After`** (see `docs/FAILURE_TAXONOMY.md`).
-2. **Week 4 case study documents** (Days 26-28) — VP pitch, assembly, final review.
+2. **Week 4 case study documents** (Days 27-28) — assembly, final review.
 3. **Re-run the model comparison** on the current prompt to test the retry-model question.
 4. **End-client extraction** — Parse job descriptions to identify the actual hiring company when the listing is from a recruitment agency.
 5. **Human-in-the-loop approval** — Pause before generating cover letters so the candidate can approve the selected jobs.

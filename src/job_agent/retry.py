@@ -6,7 +6,7 @@ import logging
 from typing import Callable, Any, Optional
 
 from .failures import classify_exception, RetryPolicy
-from .audit_logger import AuditLogger
+from .audit_logger import AuditLogger, redact_for_log
 
 logger = logging.getLogger(__name__)
 
@@ -45,7 +45,7 @@ def execute_with_retry(
             tool=tool_name,
             attempt_number=attempt,
             status="start",
-            details={"kwargs": {k: v for k, v in kwargs.items() if not callable(v)}}
+            details={"kwargs": redact_for_log({k: v for k, v in kwargs.items() if not callable(v)})}
         )
         
         try:
@@ -108,7 +108,7 @@ def execute_with_retry(
                     tool=tool_name,
                     attempt_number=attempt + 1,
                     status="modified",
-                    details={"new_kwargs": {k: v for k, v in kwargs.items() if not callable(v)}}
+                    details={"new_kwargs": redact_for_log({k: v for k, v in kwargs.items() if not callable(v)})}
                 )
                 
             attempt += 1
