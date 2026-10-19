@@ -286,6 +286,15 @@ def test_addressing_accepts_a_slug_company_written_as_a_name():
     assert not _addr("Acme", "Dear Hiring Manager,\n\nPython Engineer at Acmeish Ltd would suit me.\n\nBest".replace("Acmeish", "Zenith"))
 
 
+def test_addressing_accepts_a_slug_with_corporate_suffixes_but_only_for_the_right_company():
+    # 2026-10-19 live run: FreeHire gave "Hsogroupbv", the letter says "HSO"
+    letter = "Dear HSO Hiring Team,\n\nI am excited to apply for the Python Engineer position at HSO.\n\nBest"
+    assert _addr("Hsogroupbv", letter)
+    assert not _addr("Hsogroupbv", letter.replace("HSO", "Globex"))
+    assert not _addr("Hsogroupbv", letter.replace("HSO", "HSOX"))  # whole word only
+    assert not _addr("Acme", letter.replace("HSO", "Zenith"))  # names without suffixes are not loosened
+
+
 def test_addressing_accepts_a_named_contact_but_not_a_team_or_company_greeting():
     body = "\n\nI am thrilled to apply for the Python Engineer position at Rhea Space Activity.\n\nBest"
     assert _addr("Eden Scott", "Dear Derek Polowyj," + body)

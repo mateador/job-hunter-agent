@@ -106,7 +106,7 @@ def test_full_recovery_cycle(tmp_path, monkeypatch):
 
     # ── PHASE 2: Resume from checkpoint ──
     print("\n" + "=" * 60)
-    print("PHASE 2: Resume from checkpoint (should skip all jobs)")
+    print("PHASE 2: Resume from checkpoint (should skip finished jobs, retry the failed one)")
     print("=" * 60)
 
     audit2 = AuditLogger(trace_dir=str(audit_dir))
@@ -115,9 +115,12 @@ def test_full_recovery_cycle(tmp_path, monkeypatch):
         run_id=run_id  # Same run_id = same checkpoint file
     )
 
+    phase2_calls = []
+
     def mock_generate_application_phase2(job, llm_client, audit_logger, **kwargs):
-        # This should never be called since all jobs are already processed
-        raise AssertionError(f"Should not process job {job.id} - already in checkpoint")
+        # Only the failed job may be attempted again; finished jobs must not be regenerated.
+        phase2_calls.append(job.id)
+        raise ValueError("Simulated job failure")
 
     with patch("src.job_agent.agent_runner.generate_application",
                side_effect=mock_generate_application_phase2):
@@ -145,7 +148,8 @@ def test_full_recovery_cycle(tmp_path, monkeypatch):
     print(f"  [Phase 3] Total applications: {len(result2['applications'])}")
     print(f"  [Phase 3] Failed jobs: {len(result2['failed_jobs'])}")
 
-    # Resume should preserve the partial state
+    # Resume keeps the finished jobs, retries job_3 (which fails again) and does not duplicate its record
+    assert phase2_calls == ["job_3"], "Only the failed job should be retried"
     assert result2["status"] == "partial"
     assert len(result2["applications"]) == 4, "Should still have 4 successful applications"
     assert len(result2["failed_jobs"]) == 1, "Should still have 1 failed job"
@@ -162,7 +166,7 @@ def test_full_recovery_cycle(tmp_path, monkeypatch):
     print(f"  - Job 3 failed during initial run")
     print(f"  - Agent continued and completed jobs 4-5")
     print(f"  - Final state: 4/5 jobs successful, 1 failed")
-    print(f"  - Resume preserved the partial state")
+    print(f"  - Resume kept the 4 finished jobs and retried job 3")
     print(f"  - Checkpoint file: {cp_manager2.get_checkpoint_path()}")
     print(f"  - Audit trail: {audit_dir}")
     print("=" * 60 + "\n")
@@ -170,8 +174,8 @@ def test_full_recovery_cycle(tmp_path, monkeypatch):
 
 def test_recovery_preserves_partial_failures(tmp_path, monkeypatch):
     """
-    Verify that when we resume, previously-failed jobs stay failed
-    (not retried) and new jobs can still succeed.
+    Verify that when we resume, a previously-failed job is retried (and recorded once if it
+    fails again) while finished jobs are kept.
     """
     monkeypatch.setenv("OPENAI_API_KEY", "test-key")
 
@@ -223,16 +227,19 @@ def test_recovery_preserves_partial_failures(tmp_path, monkeypatch):
     assert len(result1["failed_jobs"]) == 1
     assert result1["failed_jobs"][0].job_id == "j2"
 
-    # ── Phase 2: Resume (should not retry failed job) ──
+    # ── Phase 2: Resume (the failed job is retried, finished jobs are not) ──
     audit2 = AuditLogger(trace_dir=str(audit_dir))
     cp_manager2 = CheckpointManager(
         checkpoint_dir=str(checkpoint_dir),
         run_id=run_id
     )
 
+    phase2_calls = []
+
     def mock_phase2(job, llm_client, audit_logger, **kwargs):
-        # Should not be called for j2 (already failed)
-        assert job.id != "j2", f"Should not retry failed job {job.id}"
+        phase2_calls.append(job.id)
+        if job.id == "j2":
+            raise ValueError("Job 2 fails permanently")
         return Application(
             job_id=job.id,
             cover_letter=f"Cover for {job.title}",
@@ -257,8 +264,40 @@ def test_recovery_preserves_partial_failures(tmp_path, monkeypatch):
 
             result2 = runner2.run(query="test query", resume=True)
 
-    # Verify failed job is preserved, not retried
+    # The failed job was attempted again, still failed, and is recorded exactly once
+    assert phase2_calls == ["j2"]
     assert result2["status"] == "partial"
     assert len(result2["applications"]) == 2
     assert len(result2["failed_jobs"]) == 1
     assert result2["failed_jobs"][0].job_id == "j2"
+
+
+def test_resume_retries_a_failed_job_and_completes_the_run(tmp_path, monkeypatch):
+    """A transient failure in the first run is recovered by --resume."""
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+    listing = [{"id": f"j{i}", "title": f"Job {i}", "company": f"C{i}"} for i in (1, 2, 3)]
+
+    def make(run_id_dir):
+        return AgentRunner(
+            audit_logger=AuditLogger(trace_dir=str(tmp_path / "traces")),
+            checkpoint_manager=CheckpointManager(checkpoint_dir=str(tmp_path / "checkpoints"), run_id="retry_on_resume"),
+            model="gpt-4o-mini", max_jobs=3)
+
+    def flaky(job, llm_client, audit_logger, **kwargs):
+        if job.id == "j2":
+            raise ValueError("transient")
+        return Application(job_id=job.id, cover_letter="letter", cv_bullets=["bullet"])
+
+    def healthy(job, llm_client, audit_logger, **kwargs):
+        return Application(job_id=job.id, cover_letter="letter", cv_bullets=["bullet"])
+
+    with patch("src.job_agent.agent_runner.search_freehire", return_value=listing):
+        with patch("src.job_agent.agent_runner.generate_application", side_effect=flaky):
+            first = make(None).run(query="q")
+        assert first["status"] == "partial"
+        with patch("src.job_agent.agent_runner.generate_application", side_effect=healthy):
+            second = make(None).run(query="q", resume=True)
+
+    assert second["status"] == "completed"
+    assert sorted(a.job_id for a in second["applications"]) == ["j1", "j2", "j3"]
+    assert second["failed_jobs"] == []

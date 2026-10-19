@@ -1,10 +1,71 @@
 # Evaluation Baselines
 
-Two live baselines. The **Day 21 checkpoint** is the current one; the Day 18 baseline is kept as the record of what the first live run found, and predates several changes (see below).
+Three live runs. The **Day 22 re-run** is the current one because it is the only one that matches the present prompt; the Day 21 checkpoint and the Day 18 baseline are kept as the record and predate later changes (see below).
 
 ---
 
-# Day 21 checkpoint (current)
+# Day 22 induced-guard experiment (live, real model)
+
+`python -m evals.stress.guards` (user's terminal, 2026-10-19, `gpt-4o-mini`, the author's real CV, 5 scenarios x 3 queries x 2 jobs = 30 job runs, **$0.019 estimated**). Each scenario appends an explicit "break the rule" instruction to the first draft prompt (G2 and G4 also to the retry prompt). Table: `docs/baselines/stress_guards_20261019.md`. **This is induced.** It shows detection and recovery with a live model; it does not give a failure rate.
+
+| What was exercised | Live result |
+|---|---|
+| Structure guard, recovery (G3: empty bullets on the first draft) | **6 of 6 drafts** flagged `no CV bullets`, regenerated once, final drafts clean |
+| Structure guard, flag path (G4: empty bullets on draft and retry) | **6 of 6** kept with `No CV bullets. Check before sending.`; the Markdown report shows "Review needed" for them |
+| Grounding guard, recovery | **3 of 3** violations (`25`, `40`, `75`) regenerated once; the final letters contain none of those figures (checked independently of the guard, against CV and posting) |
+| Retry-model routing (G5: `--retry-model gpt-4.1-mini`) | The grounding retry really ran on `gpt-4.1-mini-2025-04-14` and the draft on `gpt-4o-mini`; the retry came back clean (n=1) |
+| Grounding guard, flag path (both drafts fabricate, G2) | **Not exercised**: the retry never fabricated again |
+
+**What this does not show.**
+- The fabrication instruction mostly did not work: 2 of the 18 provoked jobs (G1, G2, G5) produced an ungrounded figure. `gpt-4o-mini` mostly reused figures that are in the CV, which are grounded. G1 produced none, and G2 produced one although the retry was provoked too.
+- **One violation was not provoked.** In G3 (`solutions engineer`, Dynatrace) the instruction only broke the structure, yet the regenerated draft contained an invented `75`. The guard caught it and the retry removed it. It is the first ungrounded figure seen live since the Day 18 baseline, and it came from a draft written with a revision note, not the normal prompt. One event; it does not change the organic rate estimate (now 1 in about 100 live applications, from two runs plus this one), but it shows the guard earns its place.
+- The grounding flag path (a letter shipped with "Review needed" for a figure) is still proven only by unit tests.
+- Recovery means the final draft has no ungrounded numbers and passes the structure rules. Whether the second letter is a better letter is not measured.
+- G5 compares nothing about retry-model quality: n=1, the retry model fixed it, `gpt-4o-mini` fixed the same kind of case in G2 and G3. The retry-model question stays open.
+
+---
+
+# Day 22 re-run (current)
+
+Same command and dataset as Day 21, run after the prompt change (no "concise", letter target 160-300 words). Purpose: measure that change and see how much a repeat run moves.
+
+- **Run:** `eval_live_20261019_162521`, 2026-10-19, `gpt-4o-mini`, 2 jobs per query, the author's real CV. Summary: `docs/baselines/eval_live_20261019_162521.summary.json`.
+- **Reproduce:** `python -m evals.runner --live --max-jobs 2`.
+
+## Result
+
+**17 of 20 queries passed (85%) as run; 18 of 20 after correcting the addressing check.** 19/19 offline scenarios passed. Standard 5/6, niche 3/4, broad 2/3, edge 4/4, agency 3/3. Format 88%, addressing 94%, grounding 100% (11 evaluated), relevance 100%.
+
+Cost: 34 calls, 92,429 tokens, **$0.0162 estimated, $0.0005 per application** (list price, not billing). Mean latency 9.06s (max 15.57s). 10 of 34 jobs researched, 0 failed.
+
+## The three failures
+
+- **`std-01` addressing: a false positive of the check, not a letter fault.** FreeHire's company field is the slug `Hsogroupbv`; the letter correctly says "HSO". Day 21 had a similar slug case (`foundationhealthcareers`), which the check now handles by prefix; `hsogroupbv` does not prefix-match "HSO". The check now also strips trailing corporate suffixes (group, bv, ltd, plc, ...) from a one-word slug and accepts the remaining stem (3+ characters) as a whole word in the letter; a different company, a longer word ("HSOX") and suffix-free names still fail (tested). `python -m evals.rescore` gives **18/20**. As on Day 21, the fix was made after seeing the failure and re-scored on the same data, so 18/20 is a statement about the check, not a fresh measurement.
+- **`niche-02` and `broad-03` format: real. Letters of 139 and 138 words** against the 150 floor.
+
+## Letter length under the new target (the question this run was for)
+
+| | Day 21 run (target 220-300) | This run (target 160-300) |
+|---|---|---|
+| Letters | 34 | 34 |
+| Mean words | 173 | 173 |
+| Range | 146-199 | 138-205 |
+| Inside the prompt's target | 0 | 29 of 34 (85%) |
+| Under 150 (fails the check) | 1 | 2 |
+
+**Reading:** the mean did not move. The model writes about 173 words regardless of the number in the prompt, as the Day 21 follow-up found. Lowering the target to 160 therefore "fixed" length only by moving the goalpost to where the model already is. 5 of 34 letters (15%) are still under 160 and 2 are under the 150 floor, so this prompt wording does not prevent short letters. Pooled with Day 21, 80 letters average about 174 words. Whether a short letter is actually worse is not established: the 150-word floor is a rule I chose, not a measured quality threshold.
+
+## What this run shows and does not show
+
+- **Guards still did not fire organically.** Grounding retries 0, structure retries 0, structure flags 0, in 34 applications: two live eval runs (68 applications) with no activation. They were later exercised on purpose (section above).
+- **`agency_posting` fired live for the first time**, once: `remotestar-team` on `broad-02` (a 6,593-character posting; the rich-description rule would have let it through without a name match). One live hit, not a measurement of recall.
+- **A miss:** on `agency-02` the company "RecOps" was not recognised as an agency (the name has no "recruit"), and the posting (498 characters) was researched as `thin_description`. The model still addressed the letter to "RecOps Recruitment Team" and called it a consultancy, so the letter was fine; the policy was not. Same pattern as Eden Scott in Day 21: the model compensates for what the policy misses.
+- **Day 21 and Day 22 are not job-for-job comparable** (FreeHire postings change daily). 19/20 re-scored versus 17/20 as run, with a different mix of failure causes (Day 21: two check false positives and one short letter; Day 22: one check false positive and two short letters), shows the spread you get from re-running the same code. It says little about which version is better.
+- Same limits as Day 21 (below): small sample, non-deterministic model, keyword relevance, numbers-only grounding, UK only, one CV.
+
+---
+
+# Day 21 checkpoint (superseded by Day 22 for the prompt, kept for the record)
 
 Full live run after the Day 19-20 work: 20 golden queries, 34 jobs, real FreeHire and OpenAI calls.
 

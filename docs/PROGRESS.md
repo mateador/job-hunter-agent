@@ -158,7 +158,7 @@ We've built a resilient, observable AI agent for job hunting that can survive cr
 
 ### Week 4: Communicate and Defend (Days 22–28)
 
-- **Day 22:** Pain point + why AI belongs (one-page narrative)
+- **Day 22:** Pain point + why AI belongs (done: `docs/PAIN_POINT.md`, a page plus evidence table; one TODO left for the author's own job-search numbers; `--resume` and unused failure categories documented as known gaps, decision on Day 23; plus a live re-run `eval_live_20261019_162521`: 17/20 as run, recorded in `docs/BASELINE.md`)
 - **Day 23:** Architecture + decisions doc
 - **Day 24:** Iteration story (what v1 got wrong, how it was fixed)
 - **Day 25:** Engineer pitch rehearsal (10-min recording)

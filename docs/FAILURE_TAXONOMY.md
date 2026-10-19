@@ -65,7 +65,7 @@ Limits of the new handling:
 - Backoff is 1s then 2s. That is short for a real rate limit, and `Retry-After` is not read, so a sustained 429 will still fail the job after 3 attempts.
 - `insufficient_quota` also arrives as a 429, so it is checked first and is not retried.
 - The OpenAI client is built with `max_retries=0`, so only this retry layer applies (no double retrying).
-- The retry only wraps the FreeHire and LLM calls. A failed job is still not retried on `--resume`.
+- The retry only wraps the FreeHire, LLM and DuckDuckGo calls. A failed job is retried on `--resume` (fixed on Day 22, see below).
 
 ### Failure catalogue
 
@@ -83,7 +83,7 @@ Limits of the new handling:
 
 Gaps in recovery:
 
-- **`--resume` does not retry failed jobs.** A failed job is added to `jobs_processed`, so a resumed run skips it. To retry E1 failures you must start a new run.
+- **`--resume` used to skip failed jobs (fixed Day 22).** A failed job is added to `jobs_processed`, so a resumed run skipped it; reproduced by induced fault B7a (0 LLM calls on resume, run stayed `partial`). Now `AgentRunner.run` drops failed jobs from `jobs_processed` and `failed_jobs` when resuming and tries them again; if one fails again it gets one fresh record. The `resume` trace event lists `jobs_retrying`. A deterministic failure is therefore re-attempted on every resume (one try each).
 - **No cross-run recovery of partial research.** Checkpoints do not store usage, research decisions or the research cache, so a resumed run loses them (cost and escalation figures are then incomplete).
 - **Failed LLM attempts report no usage**, so retries are undercounted in cost figures.
 
@@ -95,14 +95,14 @@ These matter more than Part 1: none raises an error, and each was found by an ev
 |---|---|---|---|---|
 | S1 | **FreeHire silently ignores the query** (generic endpoint returned unrelated jobs) | `search_meta.ignored_params` in the response; eval `search_honored` and `relevance` | Switched to the agent search endpoint; `FreeHireIgnoredParamError` if the query param is ever ignored again | **Live**: found in the first live run |
 | S2 | **Blank query generated applications for random jobs** | Reading output | Rejected in CLI and `AgentRunner.run` | **Live**: found once |
-| S3 | **Fabricated figures** ("reduced deployment times by 40%", "25%") plus an unsupported Azure-lead claim | Eval `grounding` check; runtime guard regenerates once, then flags "Review needed" | Guard: Unit only | **Live**: 1 query of 20 (niche-02), 1 of 34 jobs; guard never triggered live |
+| S3 | **Fabricated figures** ("reduced deployment times by 40%", "25%") plus an unsupported Azure-lead claim | Eval `grounding` check; runtime guard regenerates once, then flags "Review needed" | Guard: regenerates once, then flags | **Live**: 1 query of 20 (niche-02), 1 of 34 jobs. Guard: triggered live only under induced conditions (Day 22: 3 of 3 recovered, one of them unprovoked); see `docs/BASELINE.md` |
 | S4 | **Invented skill, employer or claim with no number** | Not detected | None. The grounding check covers numbers only | Known gap; the Azure claim above was caught only because it came with figures |
 | S5 | **Agency treated as an employer.** Letter is addressed to a recruiter, which is researched for nothing | `research_policy`: company-name pattern, plus (Day 20) posting language such as "our client" or "the client's office" | Skipped (`agency` / `agency_posting`). The letter is still generated; no letter-level agency check exists | **Live**: 6 of 34 jobs flagged by name; "Intec Select Ltd" slipped through |
 | S6 | **Truncated postings.** Two aggregator sources cut descriptions to about 500 characters | Description length | Triggers company research (cannot recover the missing role detail) | **Live**: about two thirds of sampled descriptions |
 | S7 | **Search returns zero jobs** | `jobs_found == 0` | Reported as an empty result, not a failure | **Live** (Lisbon query) |
 | S8 | **Non-UK queries are not searched at all.** `regions` was hard-coded to `uk` | None | Day 20: `FREEHIRE_REGIONS` env var (default `uk`). Whether FreeHire accepts other values is unverified, so non-UK behaviour is untested | Known limit |
 | S9 | **Model writes a letter that fails format/addressing** (bullets, length, company name, raw JSON, placeholder text) | Eval `format` and `addressing` checks | Length: the prompt now states the limits (Day 20); eval only. Unusable output: see S11 | **Live**: 17 of 17 evaluated passed in the baseline; in the Day 19 comparison `gpt-5-nano` and `gpt-5.4` failed 4 of 12 applications each on length limits the prompt had not stated (`docs/MODEL_COMPARISON.md`) |
-| S11 | **Unusable output: no CV bullets, empty letter, raw JSON or placeholder as the letter.** `application_generator` used to turn missing bullets into `[]` silently | `format_rules.application_defects` at runtime | One regeneration (`structure_retry`), then kept with a "Review needed" warning. A grounding retry that loses its bullets is warned about, not retried (at most 3 calls per job) | **Live**: 1 of 106 saved applications (`gpt-5.4`, empty bullets). Guard: Unit only, never triggered live |
+| S11 | **Unusable output: no CV bullets, empty letter, raw JSON or placeholder as the letter.** `application_generator` used to turn missing bullets into `[]` silently | `format_rules.application_defects` at runtime | One regeneration (`structure_retry`), then kept with a "Review needed" warning. A grounding retry that loses its bullets is warned about, not retried (at most 3 calls per job) | **Live**: 1 of 106 saved applications (`gpt-5.4`, empty bullets). Guard: triggered live only under induced conditions (Day 22: 6 of 6 recovered, 6 of 6 flagged in the report); never on its own |
 | S10 | **Relevance drift** (loosely related job accepted) | Keyword match on job titles | Eval only | Known limit; keywords are hand-written guesses |
 
 ### Agency-language signal (Day 20)
@@ -137,3 +137,25 @@ will miss postings that avoid it and may flag an employer that happens to write 
 - No frequencies above are rates for production use: the live sample is 20 queries, 34 jobs, one CV, one run.
 - Of the 8 categories, 3 are never emitted and 1 (`CONTEXT_OVERFLOW`) is probably unreachable.
 - The retry behaviour for 429/5xx/connection errors was added without a real occurrence to test against.
+
+
+## Part 4: Induced faults (Day 22)
+
+Organic failure data is nearly empty, so failures were produced on purpose: `python -m evals.stress.faults` runs
+the real `AgentRunner` against scripted transports that raise the real exception types (`openai.*`,
+`requests` via a local stub server, `DDGSException`). Retry, classification, guards, checkpoints and resume are
+production code. Backoff sleeps are stubbed, so delays are the delays *requested*. Full table:
+`docs/baselines/stress_faults_20261019.md`. **Evidence label: Induced.** It shows the mechanisms behave as
+designed; it says nothing about how often these failures happen.
+
+Result: 24 of 25 scenarios matched the expectation written before the run; after the two fixes below all 25 do (offline, in `tests/test_stress_harness.py`).
+- Matched: 429/500/504/connection/timeout on the LLM are retried (1s, then 2s) and the run completes; exhausted retries fail one job and the others still deliver (`partial`); 401, quota (`MANUAL_INTERVENTION`), 404 and 400 are not retried; `context_length_exceeded` gets exactly one retry; prose instead of JSON is recovered by the structure guard (3 calls); FreeHire 429 recovers, 500/HTML/refused connection/401/ignored-param fail the run after the documented attempts with **no checkpoint written** (nothing to resume); zero results is a clean empty run; DuckDuckGo errors and timeouts degrade to a letter without research; `kill -9` mid-job then `--resume` keeps the finished jobs, does not search again, creates no duplicates.
+- **Bug found and fixed: resume skipped failed jobs** (B7a/B7b). Fixed, with tests; the old tests that "documented" the skip passed by accident because an `AssertionError` inside the mock was swallowed by the runner, and are rewritten.
+- **Bug found and fixed: a model reply with `content=None` (for example a refusal) failed the job as `UNKNOWN` (B2f).** `_strip_code_fences(None)` raised `AttributeError` before the structure guard could see the draft. `generate_application` now treats `None` as an unparseable reply, so the structure guard regenerates once (3 LLM calls). A real API can return `None` content on a refusal, so this is plausible live, but it has not been seen.
+- Observations, not bugs: a 401 or quota error is still attempted on every remaining job (one call each) instead of stopping the run; OpenAI 400/404 are classified `UNKNOWN`; the job-level `FailedJob.attempt_number` is always 1, though the retry layer made up to 3 attempts (the trace has the real count).
+- **Real API errors (live, user's terminal, `python -m evals.stress.api_errors`, prompt "ping", no CV; table in `docs/baselines/stress_api_errors_20261019.md`). Evidence: Induced, against the real API.** All four matched the prediction:
+  - Invalid key: real 401 `AuthenticationError` -> `AUTH_ERROR` / `NOT_RETRYABLE`, 1 attempt.
+  - Unknown model: real 404 `NotFoundError` -> `UNKNOWN` / `NOT_RETRYABLE`, 1 attempt (the classifier has no OpenAI 404 branch; the message is clear, the category is not).
+  - `gpt-5.4` with `reasoning_effort="minimal"`: real 400 `BadRequestError` -> `UNKNOWN` / `NOT_RETRYABLE`, 1 attempt; the message lists the supported values.
+  - A 1 ms client timeout: 3 attempts and **measured** gaps of 1.01s and 2.01s, so the backoff really is 1s then 2s. **Caveat: this was not a read timeout.** The failure was `APIConnectionError` caused by `[Errno 101] Network is unreachable`, because a 1 ms budget cuts off the connection attempt before it can fall back from an unreachable route (probably IPv6) to one that works. It exercises the same retry path as a timeout (both classify as `TIMEOUT`), but a true `APITimeoutError` from a slow response has not been seen live.
+- The gap between "the classifier is correct" and "the category is useful" is real: 400 and 404 from OpenAI both land in `UNKNOWN`. Whether to add OpenAI-specific branches is a Day 23 decision, not made here.

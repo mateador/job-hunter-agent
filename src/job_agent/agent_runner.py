@@ -88,17 +88,24 @@ class AgentRunner:
                 failed_jobs = [FailedJob(**fj) for fj in state.get("failed_jobs", [])]
                 messages = state.get("agent_messages", [])
 
+                # A failed job counts as processed in the checkpoint, but a resume should try it again:
+                # the failure may have been transient. If it fails again a fresh record replaces the old one.
+                retrying = [fj.job_id for fj in failed_jobs]
+                jobs_processed -= set(retrying)
+                failed_jobs = []
+
                 self.audit_logger.log_event(
                     event_type="resume",
                     checkpoint_id=self.checkpoint_manager.checkpoint_counter,
                     jobs_already_processed=len(jobs_processed),
                     jobs_remaining=len(jobs_found) - len(jobs_processed),
+                    jobs_retrying=retrying,
                     status=state.get("status")
                 )
                 logger.info(
                     f"Resumed: {len(jobs_processed)}/{len(jobs_found)} jobs "
                     f"already processed, {len(applications)} applications generated, "
-                    f"{len(failed_jobs)} failures"
+                    f"{len(retrying)} previously failed jobs will be retried"
                 )
             else:
                 logger.info("No valid checkpoint found, starting fresh")

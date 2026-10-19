@@ -4,7 +4,7 @@
 [![LLM](https://img.shields.io/badge/LLM-OpenAI%20GPT--4o--mini-green.svg)](https://platform.openai.com/)
 [![Status](https://img.shields.io/badge/Status-Day%2021%20of%2030-yellow.svg)](#)
 
-An observable, resilient agentic workflow that automates job research, CV matching, and tailored application drafting. Built as a 30-day portfolio case study (Day 21 of 30 complete) to demonstrate reliable AI workflows with full execution transparency, crash recovery, partial completion guarantees, and measurable evaluation.
+An observable, resilient agentic workflow that automates job research, CV matching, and tailored application drafting. Built as a 30-day portfolio case study (Day 22 of 30 complete) to demonstrate reliable AI workflows with full execution transparency, crash recovery, partial completion guarantees, and measurable evaluation.
 
 ---
 
@@ -97,7 +97,8 @@ Cover letters for recruitment agencies are addressed to the consultant rather th
 | 19 | **Cost & routing**: token usage and estimated cost per call/run, model router with a separate grounding-retry model, model comparison tool | ✅ Complete (defaults unchanged until the comparison supports a change) |
 | 20 | **Failure modes**: `docs/FAILURE_TAXONOMY.md` rewritten with evidence labels; agency-language signal in the research policy; configurable `FREEHIRE_REGIONS`; fixed HTTP error classification (4xx/5xx were all `UNKNOWN`); 429/5xx/connection errors now retried | ✅ Complete (retry changes unit-tested only) |
 | 21 | **Week 3 checkpoint**: full live baseline (`docs/BASELINE.md`): 18/20 as run, 19/20 re-scored, $0.0005 per application; letter-length finding and prompt targets | ✅ Complete |
-| 22-28 | Pain-point doc, architecture, iteration story, pitches, case study assembly, final review | ⏳ Planned |
+| 22 | **Pain point**: `docs/PAIN_POINT.md`, why AI belongs and where it does not, with evidence table and stated limits | ✅ Complete (one placeholder for the author's own numbers) |
+| 23-28 | Architecture, iteration story, pitches, case study assembly, final review | ⏳ Planned |
 
 ---
 
@@ -209,6 +210,7 @@ Reports are written to `evals/results/` (gitignored). Mock results say nothing a
 
     job-hunter-agent/
     ├── docs/
+    │   ├── PAIN_POINT.md             # Day 22: Pain point, why AI belongs, evidence and limits
     │   ├── BASELINE.md               # Day 21: Live baseline, results and limits
     │   ├── baselines/                # Day 21: Committed run summaries (*.summary.json)
     │   ├── FAILURE_TAXONOMY.md       # Day 20: Failure modes, evidence and gaps
@@ -282,7 +284,7 @@ Reports are written to `evals/results/` (gitignored). Mock results say nothing a
 
 ## 🧪 Testing
 
-The test suite (243 tests) covers retry logic, timeout classification, checkpoint save/load, resume scenarios, partial completion, end-to-end recovery, the FreeHire search and research tools, the escalation policy, and the evaluation harness itself. Tests never touch the network: `tests/conftest.py` stubs company research for every test.
+The test suite (270 tests) covers retry logic, timeout classification, checkpoint save/load, resume scenarios, partial completion, end-to-end recovery, the FreeHire search and research tools, the escalation policy, and the evaluation harness itself. Tests never touch the network: `tests/conftest.py` stubs company research for every test.
 
     # Run all tests (use "python -m pytest" so the active environment's pytest is used)
     python -m pytest tests -q
@@ -315,7 +317,7 @@ These are honest, deliberate scope boundaries — not bugs.
 ## 🔮 Next Iteration Roadmap
 
 1. **Resume does not retry failed jobs; backoff ignores `Retry-After`** (see `docs/FAILURE_TAXONOMY.md`).
-2. **Week 4 case study documents** (Days 22-28) — pain-point doc, architecture, iteration story, pitches, final review.
+2. **Week 4 case study documents** (Days 23-28) — architecture, iteration story, pitches, final review.
 3. **Re-run the model comparison** on the current prompt to test the retry-model question.
 4. **End-client extraction** — Parse job descriptions to identify the actual hiring company when the listing is from a recruitment agency.
 5. **Human-in-the-loop approval** — Pause before generating cover letters so the candidate can approve the selected jobs.

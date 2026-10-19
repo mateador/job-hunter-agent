@@ -160,6 +160,9 @@ _NOT_A_PERSON = {"team", "manager", "managers", "committee", "department", "sir"
                  "inc", "llc", "plc", "group", "labs", "health", "systems", "technologies", "solutions",
                  "partners", "holdings", "software", "ai", "hiring", "team,", "staff", "panel"}
 _SLUG_MIN_CHARS = 12  # FreeHire sometimes gives a slug ("foundationhealthcareers") instead of a name
+_STEM_MIN_CHARS = 3
+# Corporate suffixes a slug glues onto the trading name ("hsogroupbv" for "HSO"); stripped from the end only.
+_SLUG_SUFFIXES = ("group", "holdings", "limited", "ltd", "plc", "inc", "llc", "gmbh", "bv", "uk", "ag", "sa")
 
 
 def _addressed_to_named_person(letter: str) -> bool:
@@ -174,8 +177,23 @@ def _company_mentioned(company: str, first: Optional[str], letter_lower: str) ->
     squashed_company = re.sub(r"[^a-z0-9]", "", company.lower())
     if " " not in company.strip() and len(squashed_company) >= _SLUG_MIN_CHARS:
         prefix = squashed_company[: max(_SLUG_MIN_CHARS, int(len(squashed_company) * 0.6))]
-        return prefix in re.sub(r"[^a-z0-9]", "", letter_lower)
-    return False
+        if prefix in re.sub(r"[^a-z0-9]", "", letter_lower):
+            return True
+    return _slug_stem_mentioned(squashed_company, letter_lower)
+
+
+def _slug_stem_mentioned(squashed_company: str, letter_lower: str) -> bool:
+    """A short slug with corporate suffixes ("hsogroupbv") is the trading name ("HSO") plus them."""
+    stem = squashed_company
+    stripped = True
+    while stripped:
+        stripped = False
+        for suffix in _SLUG_SUFFIXES:
+            if stem.endswith(suffix) and len(stem) - len(suffix) >= _STEM_MIN_CHARS:
+                stem, stripped = stem[: -len(suffix)], True
+    if stem == squashed_company:
+        return False
+    return bool(re.search(rf"\b{re.escape(stem)}\b", letter_lower))
 
 
 def _addressing_problems(app: Dict[str, Any], job: Dict[str, Any]) -> List[str]:

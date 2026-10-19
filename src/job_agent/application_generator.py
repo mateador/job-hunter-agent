@@ -143,7 +143,9 @@ Respond with valid JSON only, no Markdown, no code fences:
             {"role": "user", "content": prompt},
         ])
 
-        text = _strip_code_fences(response)
+        # A refusal or filtered reply can come back with content=None: treat it as unparseable so the
+        # structure guard sees an unusable draft instead of the job failing on an AttributeError.
+        text = _strip_code_fences(response or "")
         result = json.loads(text)
 
         cv_bullets = result.get("tailored_cv_bullets", [])
@@ -178,7 +180,7 @@ Respond with valid JSON only, no Markdown, no code fences:
         console.print(f"[yellow]⚠️ Could not parse application JSON for {job.company}. Using raw text.[/yellow]")
         return Application(
             job_id=job.id,
-            cover_letter=response if 'response' in dir() else "Generation failed.",
+            cover_letter=response or "",
             cv_bullets=[]
         )
     except Exception as exc:
