@@ -11,9 +11,8 @@ from .checkpoint import CheckpointManager, CheckpointError, CorruptedCheckpointE
 from .tools import search_freehire, search_duckduckgo, research_company
 from .research_policy import should_research, normalise_company
 from .models import Job, Application, FailedJob
-from .prompts import SYSTEM_PROMPT
 from .application_generator import generate_application
-from .failures import classify_exception
+from .failures import classify_exception, FailureCategory, RetryPolicy
 from .format_rules import application_defects
 from .grounding import extract_numbers, ungrounded_numbers
 
@@ -140,6 +139,7 @@ class AgentRunner:
             )
 
         # ── Step 2: Process each job ──
+        aborted_reason: Optional[str] = None
         researched: Dict[str, Any] = {}  # normalised company -> CompanyResearch or None
         research_decisions: List[Dict[str, Any]] = []
         for idx, job_data in enumerate(jobs_found):
@@ -181,7 +181,7 @@ class AgentRunner:
                 failure_record = classify_exception(
                     e,
                     tool_name="application_generation",
-                    attempt_number=1
+                    attempt_number=getattr(e, "retry_attempts", 1)
                 )
 
                 failed_job = FailedJob(
@@ -211,7 +211,22 @@ class AgentRunner:
                     messages=messages,
                     status="in_progress"
                 )
-                continue
+
+                # A bad key or an exhausted quota fails every remaining job the same way: stop, keep what
+                # was produced, and let --resume pick up the rest once the cause is fixed.
+                if (failure_record.category == FailureCategory.AUTH_ERROR
+                        or failure_record.retry_policy == RetryPolicy.MANUAL_INTERVENTION):
+                    aborted_reason = f"{failure_record.category.value}: {failure_record.message}"
+                    remaining = [j.get("id", f"job_{i}") for i, j in enumerate(jobs_found)
+                                 if j.get("id", f"job_{i}") not in jobs_processed]
+                    self.audit_logger.log_event(
+                        event_type="run_aborted",
+                        reason=aborted_reason,
+                        category=failure_record.category.value,
+                        jobs_not_attempted=len(remaining),
+                    )
+                    logger.error(f"Stopping the run: {aborted_reason}")
+                    break
 
         # ── Determine final status ──
         if len(applications) == len(jobs_found):
@@ -239,6 +254,7 @@ class AgentRunner:
             "failed_jobs": failed_jobs,
             "checkpoint_file": str(self.checkpoint_manager.get_checkpoint_path()),
             "status": status,
+            "aborted_reason": aborted_reason,
             "research_decisions": research_decisions,
             "usage": self.llm_client.usage.summary(),
         }

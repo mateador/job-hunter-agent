@@ -49,7 +49,7 @@ From the Day 21 live run and a repeat on Day 22 (`docs/BASELINE.md`): 20 queries
 - **Grounding covers numbers only.** An invented skill or employer with no figure passes.
 - **The sample is small.** One run, 34 jobs, one non-deterministic model, one CV. 18/20 versus 19/20 across days is mostly noise because the postings change daily.
 - **Real failure data is nearly empty.** The live eval run had no failed attempts, so the failure taxonomy rests mostly on unit tests and development sessions (`docs/FAILURE_TAXONOMY.md`).
-- **Known gaps, to be decided on Day 23:** the three failure categories (MISSING_DATA, PARTIAL_COMPLETION, GUARDRAIL_TRIGGERED) are defined but never emitted.
+- **Failure data is induced, not organic:** the failure taxonomy is backed by 26 deliberately provoked faults (`docs/FAILURE_TAXONOMY.md` Part 4), not by real incidents.
 - **Scope:** UK-only search, a single LLM provider, no pagination, no cross-run deduplication.
 
 The claim is narrow on purpose. The pipeline drafts quickly and cheaply, and when it goes wrong it is built to say so, not to fail quietly. Where that is only tested by synthetic cases, this document says so.

@@ -13,6 +13,14 @@ logger = logging.getLogger(__name__)
 MAX_ATTEMPTS = 3
 BASE_DELAY_SECONDS = 1.0
 
+
+def _stamp_attempts(error: Exception, attempts: int) -> None:
+    """Record on the exception how many attempts were made, so the caller can report it."""
+    try:
+        error.retry_attempts = attempts
+    except Exception:  # some exception types refuse new attributes; the count is a nicety
+        pass
+
 def execute_with_retry(
     func: Callable,
     args: tuple,
@@ -72,11 +80,13 @@ def execute_with_retry(
             # 5. Immediate failure for non-retryable or manual intervention
             if policy in (RetryPolicy.NOT_RETRYABLE, RetryPolicy.MANUAL_INTERVENTION):
                 logger.warning(f"Failure {failure_record.category} is {policy.value}. Failing immediately.")
+                _stamp_attempts(e, attempt)
                 raise e
                 
             # 6. Check if we've hit the max attempts
             if attempt >= max_attempts:
                 logger.error(f"Max attempts ({max_attempts}) reached for {tool_name}.")
+                _stamp_attempts(e, attempt)
                 raise e
                 
             # 7. RETRY_MODIFIED gets exactly one retry (so max_attempts becomes attempt + 1)

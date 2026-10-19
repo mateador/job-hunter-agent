@@ -150,7 +150,10 @@ def summarise(result: Optional[dict], runner: AgentRunner, env: Env, tool: str, 
         out["status"] = result["status"]
         out["applications"] = len(result["applications"])
         out["failed_jobs"] = [(f.job_id, f.error_category) for f in result["failed_jobs"]]
+        out["recorded_attempts"] = [f.attempt_number for f in result["failed_jobs"]]
         out["warnings"] = [a.warnings for a in result["applications"] if a.warnings]
+        if result.get("aborted_reason"):
+            out["aborted"] = result["aborted_reason"][:60]
     events = [e["event_type"] for e in trace]
     seen = {name: events.count(name) for name in
             ("structure_violation", "structure_retry", "structure_flagged", "research_failed", "job_failed")
@@ -285,6 +288,27 @@ def run_resume_after_failure(env: Env, second_llm: FakeLLM) -> Dict[str, Any]:
     }
 
 
+def run_abort_then_resume(env: Env) -> Dict[str, Any]:
+    """Phase 1: a 401 on job_2 of 3 stops the run. Phase 2: resume with a healthy LLM (key fixed)."""
+    first = FakeLLM(per_job={"job_2": [api_error(openai.AuthenticationError, 401)]})
+    runner1 = env.runner(first)
+    with env.sleeper(), patch("src.job_agent.agent_runner.search_freehire", return_value=jobs(3)):
+        r1 = runner1.run("q")
+    second = FakeLLM()
+    runner2 = env.runner(second)
+    with env.sleeper(), patch("src.job_agent.agent_runner.search_freehire",
+                              side_effect=AssertionError("resume must not search again")):
+        r2 = runner2.run("q", resume=True)
+    return {
+        "phase1": f"{r1['status']}: {len(r1['applications'])} app, llm calls {first.calls}, aborted={bool(r1['aborted_reason'])}",
+        "category": "-", "policy": "-", "attempts": None, "backoff_s": [],
+        "phase1_llm_calls": first.calls, "phase1_applications": len(r1["applications"]),
+        "status": r2["status"], "applications": len(r2["applications"]),
+        "failed_jobs": [(f.job_id, f.error_category) for f in r2["failed_jobs"]],
+        "llm_calls_on_resume": second.calls,
+    }
+
+
 def _kill_child(tmp: str, run_id: str) -> None:
     """Child process for the kill -9 scenario: blocks inside the third job's LLM call."""
     env = Env(Path(tmp), run_id)
@@ -379,29 +403,31 @@ SCENARIOS: List[Scenario] = [
              "job_1 fails (DEAD_API), run partial with 1 app, backoff 1s then 2s, 4 llm_chat attempts",
              lambda e: run_pipeline(e, FakeLLM(per_job={"job_1": [api_error(openai.RateLimitError, 429)] * 3})),
              lambda o: o["status"] == "partial" and o["applications"] == 1 and o["backoff_s"] == [1.0, 2.0]
-             and o["failed_jobs"] == [("job_1", "DEAD_API")] and o["attempts"] == 4),
+             and o["failed_jobs"] == [("job_1", "DEAD_API")] and o["attempts"] == 4
+             and o["recorded_attempts"] == [3]),
     Scenario("B3b", "LLM 401 (AuthenticationError) on every job",
-             "AUTH_ERROR / NOT_RETRYABLE: no retries, both jobs failed, run failed",
+             "AUTH_ERROR / NOT_RETRYABLE: no retries; the run STOPS after the first job (job_2 never attempted)",
              lambda e: run_pipeline(e, FakeLLM(per_job={f"job_{i}": [api_error(openai.AuthenticationError, 401)]
                                                          for i in (1, 2)})),
              lambda o: o["status"] == "failed" and o["policy"] == "NOT_RETRYABLE" and o["backoff_s"] == []
-             and o["attempts"] == 2),
+             and o["attempts"] == 1 and len(o["failed_jobs"]) == 1 and "aborted" in o),
     Scenario("B3c", "LLM 404 (model not found)",
-             "UNKNOWN / NOT_RETRYABLE (404 is not specially handled for OpenAI errors)",
+             "MALFORMED_RESPONSE / NOT_RETRYABLE (OpenAI 400/404/422 = our request was rejected); each job tries once",
              lambda e: run_pipeline(e, FakeLLM(per_job={f"job_{i}": [api_error(openai.NotFoundError, 404)]
                                                          for i in (1, 2)})),
-             lambda o: o["category"] == "UNKNOWN" and o["attempts"] == 2),
+             lambda o: o["category"] == "MALFORMED_RESPONSE" and o["policy"] == "NOT_RETRYABLE" and o["attempts"] == 2),
     Scenario("B3d", "LLM 400 (BadRequestError)",
-             "UNKNOWN / NOT_RETRYABLE (only requests.HTTPError 400 is MALFORMED_RESPONSE)",
+             "MALFORMED_RESPONSE / NOT_RETRYABLE (same branch as 404)",
              lambda e: run_pipeline(e, FakeLLM(per_job={f"job_{i}": [api_error(openai.BadRequestError, 400)]
                                                          for i in (1, 2)})),
-             lambda o: o["category"] == "UNKNOWN" and o["attempts"] == 2),
+             lambda o: o["category"] == "MALFORMED_RESPONSE" and o["policy"] == "NOT_RETRYABLE" and o["attempts"] == 2),
     Scenario("B3e", "LLM 429 insufficient_quota",
-             "AUTH_ERROR / MANUAL_INTERVENTION: not retried",
+             "AUTH_ERROR / MANUAL_INTERVENTION: not retried; the run stops after the first job",
              lambda e: run_pipeline(e, FakeLLM(per_job={f"job_{i}": [api_error(
                  openai.RateLimitError, 429, "insufficient_quota: You exceeded your current quota")]
                  for i in (1, 2)})),
-             lambda o: o["policy"] == "MANUAL_INTERVENTION" and o["backoff_s"] == [] and o["attempts"] == 2),
+             lambda o: o["policy"] == "MANUAL_INTERVENTION" and o["backoff_s"] == [] and o["attempts"] == 1
+             and "aborted" in o),
     Scenario("B3f", "LLM 400 context_length_exceeded, then success",
              "CONTEXT_OVERFLOW / RETRY_MODIFIED: one retry (history halving cannot shrink a 2-message prompt)",
              lambda e: run_pipeline(e, FakeLLM([api_error(openai.BadRequestError, 400, "context_length_exceeded")])),
@@ -452,6 +478,13 @@ SCENARIOS: List[Scenario] = [
              run_kill_and_resume,
              lambda o: o["jobs_done_before_kill"] == 2 and o["status"] == "completed" and o["applications"] == 4
              and o["duplicate_apps"] == 0 and o["llm_calls_on_resume"] == 2),
+    Scenario("B7c", "401 on job_2 of 3 stops the run; resume after the key is fixed",
+             "Phase 1 stops after 2 LLM calls (job_3 never attempted, 1 app saved). Resume retries job_2 and runs "
+             "job_3: 2 calls, completed with 3 apps, no failed jobs",
+             run_abort_then_resume,
+             lambda o: o["phase1_llm_calls"] == 2 and o["phase1_applications"] == 1
+             and o["llm_calls_on_resume"] == 2 and o["status"] == "completed" and o["applications"] == 3
+             and o["failed_jobs"] == []),
     Scenario("B7a", "job_2 failed (429 x3); resume with a healthy LLM",
              "DESIRED: the failed job is retried on resume (1 LLM call), run completed with 3 apps, 0 failed jobs",
              lambda e: run_resume_after_failure(e, FakeLLM()),

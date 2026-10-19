@@ -78,3 +78,24 @@ def test_exhausted_quota_is_not_retried():
 
 def test_openai_permission_denied_is_an_auth_error():
     assert classify_exception(openai_error(openai.PermissionDeniedError, 403)).category == FailureCategory.AUTH_ERROR
+
+
+# ── Day 23: OpenAI request rejections, and the categories that are actually emitted ──
+
+def test_openai_rejected_requests_are_not_retried_and_say_so():
+    for cls, status in ((openai.BadRequestError, 400), (openai.NotFoundError, 404),
+                        (openai.UnprocessableEntityError, 422)):
+        record = classify_exception(openai_error(cls, status))
+        assert record.category == FailureCategory.MALFORMED_RESPONSE
+        assert record.retry_policy == RetryPolicy.NOT_RETRYABLE
+        assert str(status) in record.message
+
+
+def test_context_overflow_is_still_recognised_before_the_generic_400():
+    record = classify_exception(openai_error(openai.BadRequestError, 400, "context_length_exceeded"))
+    assert record.category == FailureCategory.CONTEXT_OVERFLOW
+
+
+def test_only_emitted_categories_are_defined():
+    assert {c.value for c in FailureCategory} == {
+        "MALFORMED_RESPONSE", "DEAD_API", "TIMEOUT", "CONTEXT_OVERFLOW", "AUTH_ERROR", "UNKNOWN"}

@@ -4,7 +4,7 @@
 **Status:** Production-ready foundation complete  
 **Last Updated:** 2026-09-14 (corrected 2026-10-06)
 
-> **Correction note (Day 18).** This is a Day 14 snapshot. When reviewing it on Day 18 I found it described features that the code no longer had: the LLM-driven tool loop, the 12 guardrails, tiktoken context pruning, and company research were all removed or disconnected when `agent_runner.py` was rewritten for checkpointing in Day 11. The statements below have been corrected to match the code. For the current state, see `README.md`.
+> **Correction note (Day 18).** This is a Day 14 snapshot. When reviewing it on Day 18 I found it described features that the code no longer had: the LLM-driven tool loop, the 12 guardrails, tiktoken context pruning, and company research were all removed or disconnected when `agent_runner.py` was rewritten for checkpointing in Day 11. The statements below have been corrected to match the code. On Day 24 a closer comparison of the Day 10 and Day 11 code found two things this note did not say: from Day 11 to Day 14 the letters were generated without the CV (from a placeholder profile), and the README's `--cv`/`--keywords` usage no longer matched the CLI. See `docs/ITERATION_STORY.md`. For the current state, see `README.md`.
 
 ---
 
@@ -159,8 +159,8 @@ We've built a resilient, observable AI agent for job hunting that can survive cr
 ### Week 4: Communicate and Defend (Days 22–28)
 
 - **Day 22:** Pain point + why AI belongs (done: `docs/PAIN_POINT.md`, a page plus evidence table; one TODO left for the author's own job-search numbers; `--resume` and unused failure categories documented as known gaps, decision on Day 23; plus a live re-run `eval_live_20261019_162521`: 17/20 as run, recorded in `docs/BASELINE.md`)
-- **Day 23:** Architecture + decisions doc
-- **Day 24:** Iteration story (what v1 got wrong, how it was fixed)
+- **Day 23:** Architecture + decisions doc (done: `docs/ARCHITECTURE.md`; code changes: run stops on auth/quota errors, real `attempt_number`, OpenAI 400/404/422 classified, unused failure categories / `prompts.py` / `tiktoken` removed)
+- **Day 24:** Iteration story (what v1 got wrong, how it was fixed) (done: `docs/ITERATION_STORY.md`)
 - **Day 25:** Engineer pitch rehearsal (10-min recording)
 - **Day 26:** VP pitch rehearsal (5-min recording)
 - **Day 27:** Case study assembly
@@ -218,7 +218,7 @@ Manual demo (interactive):
 - **Lines of code:** ~2,500 (excluding tests)
 - **Test count:** 31
 - **Files:** 14 Python modules, 5 test files, 2 docs
-- **External dependencies:** openai, ddgs, pydantic, rich, requests, python-dotenv (tiktoken is declared but unused)
+- **External dependencies:** openai, ddgs, pydantic, rich, requests, python-dotenv (tiktoken was removed on Day 23)
 - **Days elapsed:** 14 of 30
 - **Days remaining:** 16
 

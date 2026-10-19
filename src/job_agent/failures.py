@@ -8,12 +8,9 @@ import requests
 import openai
 
 class FailureCategory(str, Enum):
-    MISSING_DATA = "MISSING_DATA"
     MALFORMED_RESPONSE = "MALFORMED_RESPONSE"
     DEAD_API = "DEAD_API"
     TIMEOUT = "TIMEOUT"
-    PARTIAL_COMPLETION = "PARTIAL_COMPLETION"
-    GUARDRAIL_TRIGGERED = "GUARDRAIL_TRIGGERED"
     CONTEXT_OVERFLOW = "CONTEXT_OVERFLOW"
     AUTH_ERROR = "AUTH_ERROR"
     UNKNOWN = "UNKNOWN"
@@ -134,6 +131,17 @@ def classify_exception(
             tool_name=tool_name,
             attempt_number=attempt_number,
             message=f"OpenAI quota exhausted, check billing: {msg}"
+        )
+
+    # OpenAI rejected the request itself (bad parameter, unknown model, unprocessable): our request is
+    # wrong, so retrying the same request cannot help. 401/403 are handled below as auth errors.
+    if isinstance(exception, (openai.BadRequestError, openai.NotFoundError, openai.UnprocessableEntityError)):
+        return FailureRecord(
+            category=FailureCategory.MALFORMED_RESPONSE,
+            retry_policy=RetryPolicy.NOT_RETRYABLE,
+            tool_name=tool_name,
+            attempt_number=attempt_number,
+            message=f"OpenAI rejected the request ({getattr(exception, 'status_code', '?')}): {msg}"
         )
 
     # OpenAI rate limit (429) and server errors (5xx): transient

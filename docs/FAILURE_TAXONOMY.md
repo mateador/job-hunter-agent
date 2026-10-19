@@ -30,20 +30,21 @@ Every claim carries an evidence label:
 
 ### What the classifier actually produces
 
-The taxonomy has 8 categories. `classify_exception` emits only some of them:
+The taxonomy has 6 categories, all emitted (three that nothing produced were removed on Day 23):
 
 | Category | Emitted today by | Retry policy (as implemented) |
 |---|---|---|
 | `TIMEOUT` | `TimeoutError`, `requests.Timeout`, `openai.APITimeoutError`, `openai.APIConnectionError`, HTTP 408 | `RETRY_SAME`: up to 3 attempts, backoff 1s then 2s |
 | `DEAD_API` | HTTP 429/500/502/503/504, `requests.ConnectionError`, `openai.RateLimitError`, `openai.InternalServerError` | `RETRY_SAME`, as above |
 | `AUTH_ERROR` | HTTP 401/403, `openai.AuthenticationError`, `PermissionDeniedError`, `RateLimitError` with `insufficient_quota` | `NOT_RETRYABLE` (quota: `MANUAL_INTERVENTION`), fails immediately |
-| `MALFORMED_RESPONSE` | HTTP 400 (not retried); non-JSON body (retried like `RETRY_SAME`) | see left |
+| `MALFORMED_RESPONSE` | HTTP 400 (not retried); OpenAI 400/404/422 (our request was rejected; not retried; Day 23); non-JSON body (retried like `RETRY_SAME`) | see left |
 | `CONTEXT_OVERFLOW` | OpenAI error containing `context_length_exceeded` | `RETRY_MODIFIED`: one retry with the message history halved |
-| `UNKNOWN` | everything else (e.g. HTTP 404, `ValueError`) | `NOT_RETRYABLE` |
-| `MISSING_DATA`, `PARTIAL_COMPLETION`, `GUARDRAIL_TRIGGERED` | **nothing** (defined, never emitted) | n/a |
+| `UNKNOWN` | everything else (e.g. a requests HTTP 404, `ValueError`) | `NOT_RETRYABLE` |
 
-The three unused categories are aspirational. Their situations are handled (see Parts 2 and 3) but not
-labelled with the category. `failures.py` was left unchanged for that reason.
+`MISSING_DATA`, `PARTIAL_COMPLETION` and `GUARDRAIL_TRIGGERED` were defined but never emitted. Their situations are
+already recorded precisely (`structure_*` / `grounding_*` events, the run `status`), so they were removed on Day 23
+and a test pins the set. An OpenAI 404 for an unknown model is filed under `MALFORMED_RESPONSE`: the name is
+imprecise, the message and the policy are right.
 
 ### Bug found and fixed on Day 20
 
@@ -73,7 +74,7 @@ Limits of the new handling:
 |---|---|---|---|---|
 | E1 | LLM unreachable / timeout (60s) | `openai` exceptions -> `TIMEOUT` | 3 attempts with backoff; if all fail, the **job** fails and is recorded in `failed_jobs`; other jobs continue; run ends `partial` (or `failed` if none succeeded) | Dev: 52 events ("Connection error."); **Live: none** |
 | E2 | FreeHire unreachable, rate limited or 5xx | `requests` exceptions | 429/5xx/connection/timeout: 3 attempts with backoff. 400/401/403/404: fail at once. If search fails, the run fails with nothing to salvage | Unit; none observed |
-| E3 | OpenAI auth failure | `AuthenticationError` -> `AUTH_ERROR` | Fails immediately, no retry. The CLI prints the error and a resume hint | Unit; none observed |
+| E3 | OpenAI auth failure | `AuthenticationError` -> `AUTH_ERROR` | Fails immediately, no retry, and (Day 23) **stops the run** after recording the job; the CLI prints the cause and the resume command | Unit and induced (B3b, B7c); none observed organically |
 | E4 | Context too long | `context_length_exceeded` | One retry with history halved. A single prompt is one system plus one user message, so halving cannot shrink it: effectively unreachable | Unit; none; likely dead code |
 | E5 | Job missing `id` or invalid (`Job` validation) | Pydantic `ValidationError` -> `UNKNOWN` | Job recorded as failed, run continues | Dev: 3 events |
 | E6 | Company research fails or is empty | DuckDuckGo exception | Logged as `research_failed`, letter generated **without** research (never fails the job). "No results found" is an empty result, not a failure | **Live**: 2 of 17 lookups were empty, 0 real failures |
@@ -159,3 +160,11 @@ Result: 24 of 25 scenarios matched the expectation written before the run; after
   - `gpt-5.4` with `reasoning_effort="minimal"`: real 400 `BadRequestError` -> `UNKNOWN` / `NOT_RETRYABLE`, 1 attempt; the message lists the supported values.
   - A 1 ms client timeout: 3 attempts and **measured** gaps of 1.01s and 2.01s, so the backoff really is 1s then 2s. **Caveat: this was not a read timeout.** The failure was `APIConnectionError` caused by `[Errno 101] Network is unreachable`, because a 1 ms budget cuts off the connection attempt before it can fall back from an unreachable route (probably IPv6) to one that works. It exercises the same retry path as a timeout (both classify as `TIMEOUT`), but a true `APITimeoutError` from a slow response has not been seen live.
 - The gap between "the classifier is correct" and "the category is useful" is real: 400 and 404 from OpenAI both land in `UNKNOWN`. Whether to add OpenAI-specific branches is a Day 23 decision, not made here.
+
+
+### Day 23 changes that follow from Part 4
+
+- **Auth and quota errors stop the run** (`run_aborted` event, `aborted_reason` in the result, a CLI message with the resume command). Before, every remaining job made one more doomed call. Induced B3b/B3e/B7c: the run stops after the first failing job, and resume completes the rest once the cause is fixed.
+- **`FailedJob.attempt_number` is now the real attempt count** (the retry layer stamps it on the exception). It was always 1. Induced B3a records 3.
+- **OpenAI 400/404/422 are `MALFORMED_RESPONSE` / `NOT_RETRYABLE`** instead of `UNKNOWN` (Unit, induced B3c/B3d).
+- Induced faults: 26 of 26 scenarios now match.

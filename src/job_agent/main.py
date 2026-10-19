@@ -266,6 +266,11 @@ Examples:
             else:
                 console.print(f"[bold red]❌ Failed: 0/{total_jobs} jobs processed[/bold red]")
 
+            if result.get("aborted_reason"):
+                console.print(f"[bold red]Run stopped early: {result['aborted_reason']}[/bold red]")
+                console.print(f"[bold]Fix the cause, then continue with:[/bold] "
+                              f"python -m src.job_agent.main '{query}' --resume --run-id {run_id}")
+
             usage = result.get("usage") or {}
             if usage.get("calls"):
                 unpriced = " (some calls unpriced)" if usage.get("unpriced_calls") else ""

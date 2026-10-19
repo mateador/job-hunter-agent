@@ -4,7 +4,7 @@
 [![LLM](https://img.shields.io/badge/LLM-OpenAI%20GPT--4o--mini-green.svg)](https://platform.openai.com/)
 [![Status](https://img.shields.io/badge/Status-Day%2021%20of%2030-yellow.svg)](#)
 
-An observable, resilient agentic workflow that automates job research, CV matching, and tailored application drafting. Built as a 30-day portfolio case study (Day 22 of 30 complete) to demonstrate reliable AI workflows with full execution transparency, crash recovery, partial completion guarantees, and measurable evaluation.
+An observable, resilient agentic workflow that automates job research, CV matching, and tailored application drafting. Built as a 30-day portfolio case study (Day 24 of 30 complete) to demonstrate reliable AI workflows with full execution transparency, crash recovery, partial completion guarantees, and measurable evaluation.
 
 ---
 
@@ -32,7 +32,8 @@ graph TD
     P -->|"thin posting,<br/>known non-agency company"| G["Company research<br/>DuckDuckGo (retry + timeout)"]
     P -->|"rich posting, agency,<br/>no company, or already researched"| H
     G --> H["Application Generator<br/>(one LLM call per job)"]
-    H --> I["Report Generator"]
+    H --> Q["Guards: structure, then grounding<br/>(regenerate once, then flag)"]
+    Q --> I["Report Generator"]
     I --> J["reports/report_*.md"]
 
     K["Audit Logger"] -.->|"JSONL events"| L["traces/trace_*.jsonl"]
@@ -49,13 +50,13 @@ graph TD
     style N fill:#fce4ec
 ```
 
-The agent is a fixed pipeline, not an LLM-driven loop: it runs one search, then makes one pass over the jobs. The LLM writes the applications but does not choose tools. When to research is decided by a deterministic, testable rule (`research_policy.py`): a posting under 600 characters from a known non-agency company is researched; anything else is not. Research is optional, so if it fails the letter is written without it and the job still completes.
+The full diagram, module map and the reasoning behind each design choice are in [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md). The agent is a fixed pipeline, not an LLM-driven loop: it runs one search, then makes one pass over the jobs. The LLM writes the applications but does not choose tools. When to research is decided by a deterministic, testable rule (`research_policy.py`): a posting under 600 characters from a known non-agency company is researched; anything else is not. Research is optional, so if it fails the letter is written without it and the job still completes.
 
 Resilience features:
 - **Retry & Backoff**: Transient failures (timeouts, 429, 5xx, connection errors, non-JSON bodies, OpenAI rate limits) trigger bounded exponential backoff (max 3 attempts, 1s then 2s between them; `Retry-After` is not honoured; `insufficient_quota` needs manual intervention).
 - **Timeouts**: All external calls have hard time limits enforced via centralized config.
 - **Checkpointing**: State is persisted to JSONL after every job, enabling crash recovery.
-- **Partial Completion**: If a job fails permanently, it is logged, and the agent continues to the next job.
+- **Partial Completion**: If a job fails permanently, it is logged, and the agent continues to the next job. An authentication or quota error stops the run instead (every remaining job would fail the same way); `--resume` finishes it, and also retries jobs that failed.
 
 ---
 
@@ -79,7 +80,7 @@ Cover letters for recruitment agencies are addressed to the consultant rather th
 | 1 | Agent loop, structured JSON output, max-step limit, OpenAI integration | ⚠️ Superseded: the LLM-driven loop was replaced by a fixed pipeline in Day 11 |
 | 2 | FreeHire job search API integration | ✅ Complete (endpoint corrected on Day 16) |
 | 3 | DuckDuckGo search tool; guardrails (geography default, job freshness) | ⚠️ Partly superseded: `regions=uk` and `posted_within_days=30` remain in the search; the evidence-matching and research-budget guardrails and the search tool's use in the loop were removed in Day 11. Research was reconnected on Day 18 |
-| 4 | Context & memory: tiktoken counting, context window pruning | ⚠️ Superseded: removed in Day 11 (`tiktoken` is still listed as a dependency but unused) |
+| 4 | Context & memory: tiktoken counting, context window pruning | ⚠️ Superseded: removed in Day 11 (the `tiktoken` dependency was removed on Day 23) |
 | 5 | Audit trail: JSONL event logging, trace viewer CLI | ✅ Complete |
 | 6 | Real workflow: tailored CV bullets, cover letters, consolidated Markdown report | ✅ Complete |
 | 7 | Checkpoint: validation, portfolio packaging, limitations, next iteration | ✅ Complete |
@@ -98,7 +99,9 @@ Cover letters for recruitment agencies are addressed to the consultant rather th
 | 20 | **Failure modes**: `docs/FAILURE_TAXONOMY.md` rewritten with evidence labels; agency-language signal in the research policy; configurable `FREEHIRE_REGIONS`; fixed HTTP error classification (4xx/5xx were all `UNKNOWN`); 429/5xx/connection errors now retried | ✅ Complete (retry changes unit-tested only) |
 | 21 | **Week 3 checkpoint**: full live baseline (`docs/BASELINE.md`): 18/20 as run, 19/20 re-scored, $0.0005 per application; letter-length finding and prompt targets | ✅ Complete |
 | 22 | **Pain point**: `docs/PAIN_POINT.md`, why AI belongs and where it does not, with evidence table and stated limits | ✅ Complete (one placeholder for the author's own numbers) |
-| 23-28 | Architecture, iteration story, pitches, case study assembly, final review | ⏳ Planned |
+| 23 | **Architecture**: `docs/ARCHITECTURE.md` (diagram, module map, decision records, limits); auth/quota errors stop the run; real attempt counts; OpenAI 400/404 classified; unused failure categories, `prompts.py` and `tiktoken` removed | ✅ Complete |
+| 24 | **Iteration story**: `docs/ITERATION_STORY.md`, eight turning points from the git history, patterns and what is still wrong | ✅ Complete |
+| 25-28 | Pitches, case study assembly, final review | ⏳ Planned |
 
 ---
 
@@ -210,6 +213,8 @@ Reports are written to `evals/results/` (gitignored). Mock results say nothing a
 
     job-hunter-agent/
     ├── docs/
+    │   ├── ITERATION_STORY.md        # Day 24: What v1 got wrong and how it was fixed
+    │   ├── ARCHITECTURE.md           # Day 23: Pipeline, modules, failure handling, decision records
     │   ├── PAIN_POINT.md             # Day 22: Pain point, why AI belongs, evidence and limits
     │   ├── BASELINE.md               # Day 21: Live baseline, results and limits
     │   ├── baselines/                # Day 21: Committed run summaries (*.summary.json)
@@ -250,7 +255,6 @@ Reports are written to `evals/results/` (gitignored). Mock results say nothing a
     │       ├── llm_client.py         # Centralized OpenAI wrapper with timeout
     │       ├── main.py               # CLI entrypoint with resume flags
     │       ├── models.py             # Pydantic schemas and state models
-    │       ├── prompts.py            # Legacy Day 1 loop prompt (currently unused)
     │       ├── report_generator.py   # Consolidated Markdown report writer
     │       ├── tools.py              # FreeHire search + DuckDuckGo company research
     │       ├── check_openai.py       # Verifies the OpenAI key
@@ -284,7 +288,7 @@ Reports are written to `evals/results/` (gitignored). Mock results say nothing a
 
 ## 🧪 Testing
 
-The test suite (270 tests) covers retry logic, timeout classification, checkpoint save/load, resume scenarios, partial completion, end-to-end recovery, the FreeHire search and research tools, the escalation policy, and the evaluation harness itself. Tests never touch the network: `tests/conftest.py` stubs company research for every test.
+The test suite (276 tests) covers retry logic, timeout classification, checkpoint save/load, resume scenarios, partial completion, end-to-end recovery, the FreeHire search and research tools, the escalation policy, and the evaluation harness itself. Tests never touch the network: `tests/conftest.py` stubs company research for every test.
 
     # Run all tests (use "python -m pytest" so the active environment's pytest is used)
     python -m pytest tests -q
@@ -306,7 +310,7 @@ These are honest, deliberate scope boundaries — not bugs.
 | **Agency end-clients are not identified; agency detection is heuristic** | FreeHire lists the posting agency as the company. Agencies are recognised by name (“recruit…”, “staffing”, Hays, Ocho...) or by posting language (“our client”, “the client’s office”) | Recognised agencies are not researched and letters address the consultant. A recruiter whose name and posting avoid both signals is treated as a normal company; the language pattern was tuned on 112 saved postings and may flag an employer that writes “our client”. Future: extract the real company |
 | **Research is search snippets only** | Cheap and fast; no page fetching or summarisation | Snippets are filtered for ads and capped at 3 results |
 | **Grounding covers numbers only** | Deterministic and free, at runtime and in the evals | An invented employer or skill without a figure would not be caught. A future LLM-judge check could cover this |
-| **Resume skips failed jobs instead of retrying them** | Open decision from Day 20; categories MISSING_DATA, PARTIAL_COMPLETION and GUARDRAIL_TRIGGERED are never emitted | See `docs/FAILURE_TAXONOMY.md` |
+| **Resume re-attempts deterministic failures** | Since Day 22 `--resume` retries failed jobs (found by an induced fault); a job that can never succeed is tried once per resume | See `docs/FAILURE_TAXONOMY.md` Part 4 |
 | **Letters run short of the prompt target** | In the Day 21 run letters averaged 173 words, none in the old 220-300 target; gpt-4o-mini ignores numeric word targets. The target is now 160-300, unmeasured | Re-measure on the next live run |
 | **Eval baseline is small** | Live runs cost money | Day 21 baseline (18/20 as run, 19/20 re-scored) is in `docs/BASELINE.md`; it is one run of 34 jobs. The guards did not fire in it, and letters came out shorter than the prompt asked |
 | **Single LLM provider** | OpenAI only for now | Architecture centralises all LLM calls behind `llm_client.py`. Swapping providers requires changing one file. |
@@ -316,8 +320,8 @@ These are honest, deliberate scope boundaries — not bugs.
 
 ## 🔮 Next Iteration Roadmap
 
-1. **Resume does not retry failed jobs; backoff ignores `Retry-After`** (see `docs/FAILURE_TAXONOMY.md`).
-2. **Week 4 case study documents** (Days 23-28) — architecture, iteration story, pitches, final review.
+1. **Backoff ignores `Retry-After`** (see `docs/FAILURE_TAXONOMY.md`).
+2. **Week 4 case study documents** (Days 25-28) — pitches, assembly, final review.
 3. **Re-run the model comparison** on the current prompt to test the retry-model question.
 4. **End-client extraction** — Parse job descriptions to identify the actual hiring company when the listing is from a recruitment agency.
 5. **Human-in-the-loop approval** — Pause before generating cover letters so the candidate can approve the selected jobs.

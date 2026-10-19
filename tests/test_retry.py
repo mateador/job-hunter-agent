@@ -258,3 +258,32 @@ def test_retry_same_exhausts_max_attempts(
     events = _read_trace(tmp_path / "traces")
     starts = [e for e in events if e.get("status") == "start"]
     assert len(starts) == MAX_ATTEMPTS  # exactly 3
+
+def test_exhausted_retries_record_the_attempt_count_on_the_exception(tmp_path):
+    from unittest.mock import patch
+    from src.job_agent.audit_logger import AuditLogger
+    from src.job_agent.retry import execute_with_retry
+
+    def always_times_out():
+        raise TimeoutError("slow")
+
+    with patch("src.job_agent.retry.time.sleep"):
+        try:
+            execute_with_retry(always_times_out, (), {}, AuditLogger(trace_dir=str(tmp_path)), "t")
+        except TimeoutError as e:
+            assert e.retry_attempts == 3
+        else:
+            raise AssertionError("expected TimeoutError")
+
+
+def test_non_retryable_failure_records_one_attempt(tmp_path):
+    from src.job_agent.audit_logger import AuditLogger
+    from src.job_agent.retry import execute_with_retry
+
+    def bad():
+        raise ValueError("nope")
+
+    try:
+        execute_with_retry(bad, (), {}, AuditLogger(trace_dir=str(tmp_path)), "t")
+    except ValueError as e:
+        assert e.retry_attempts == 1
