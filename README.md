@@ -2,9 +2,19 @@
 
 [![Python](https://img.shields.io/badge/Python-3.10+-blue.svg)](https://www.python.org/)
 [![LLM](https://img.shields.io/badge/LLM-OpenAI%20GPT--4o--mini-green.svg)](https://platform.openai.com/)
-[![Status](https://img.shields.io/badge/Status-Day%2026%20of%2030-yellow.svg)](#)
+[![Status](https://img.shields.io/badge/Status-Day%2028%20of%2030-yellow.svg)](#)
 
-An observable, resilient agentic workflow that automates job research, CV matching, and tailored application drafting. Built as a 30-day portfolio case study (Day 26 of 30 complete) to demonstrate reliable AI workflows with full execution transparency, crash recovery, partial completion guarantees, and measurable evaluation.
+An observable, resilient agentic workflow that automates job research, CV matching, and tailored application drafting. Built as a 30-day portfolio case study (Day 28 of 30 complete) to demonstrate reliable AI workflows with full execution transparency, crash recovery, partial completion guarantees, and measurable evaluation.
+
+---
+
+## 📖 Start here
+
+- **[Case study](docs/CASE_STUDY.md)** — the whole story in a few pages: the problem, what was built, how it was tested, what went wrong, and what the evidence does and does not show.
+- **[Architecture](docs/ARCHITECTURE.md)** — design, modules and the reasoning behind each decision.
+- **[Iteration story](docs/ITERATION_STORY.md)** — what version 1 got wrong and how it was fixed.
+- **[Project log](docs/PROGRESS.md)** — what happened on each of the 30 days.
+- Everything else (live results, failure modes, model comparison, talks) is listed at the end of the case study.
 
 ---
 
@@ -73,40 +83,6 @@ Cover letters for recruitment agencies are addressed to the consultant rather th
 
 ---
 
-## 🗓️ Development Progress
-
-| Day | Scope | Status |
-|-----|-------|--------|
-| 1 | Agent loop, structured JSON output, max-step limit, OpenAI integration | ⚠️ Superseded: the LLM-driven loop was replaced by a fixed pipeline in Day 11 |
-| 2 | FreeHire job search API integration | ✅ Complete (endpoint corrected on Day 16) |
-| 3 | DuckDuckGo search tool; guardrails (geography default, job freshness) | ⚠️ Partly superseded: `regions=uk` and `posted_within_days=30` remain in the search; the evidence-matching and research-budget guardrails and the search tool's use in the loop were removed in Day 11. Research was reconnected on Day 18 |
-| 4 | Context & memory: tiktoken counting, context window pruning | ⚠️ Superseded: removed in Day 11 (the `tiktoken` dependency was removed on Day 23) |
-| 5 | Audit trail: JSONL event logging, trace viewer CLI | ✅ Complete |
-| 6 | Real workflow: tailored CV bullets, cover letters, consolidated Markdown report | ✅ Complete |
-| 7 | Checkpoint: validation, portfolio packaging, limitations, next iteration | ✅ Complete |
-| 8 | **Failure taxonomy**: error categories and exception classification | ✅ Complete (6 categories today; the ones nothing emitted were removed on Day 23) |
-| 9 | **Resilience**: Retry with exponential backoff (bounded to 3 attempts) | ✅ Complete |
-| 10 | **Reliability**: Timeout enforcement on all external API calls | ✅ Complete |
-| 11 | **Persistence**: JSONL checkpointing after every job step | ✅ Complete |
-| 12 | **Recovery**: Robust resume with state validation and interrupted run detection | ✅ Complete |
-| 13 | **Partial completion**: Delivers results even if individual jobs fail, tracks failures | ✅ Complete |
-| 14 | **Checkpoint**: End-to-end recovery demo, progress documentation | ✅ Complete |
-| 15 | **Golden dataset**: 20 queries across 5 categories; `--cv` and `--keywords` restored | ✅ Complete |
-| 16 | **Eval harness**: mock and live runs, scoring, reports; fixed FreeHire search (it was ignoring the query); blank-query rejection | ✅ Complete |
-| 17 | **Correctness & format evals**: per-application format, addressing and number-grounding checks | ✅ Complete |
-| 18 | **Tool selection & escalation**: rule-based DuckDuckGo research, hand-labelled scenarios | ✅ Complete |
-| 19 | **Cost & routing**: token usage and estimated cost per call/run, model router with a separate grounding-retry model, model comparison tool | ✅ Complete (defaults unchanged until the comparison supports a change) |
-| 20 | **Failure modes**: `docs/FAILURE_TAXONOMY.md` rewritten with evidence labels; agency-language signal in the research policy; configurable `FREEHIRE_REGIONS`; fixed HTTP error classification (4xx/5xx were all `UNKNOWN`); 429/5xx/connection errors now retried | ✅ Complete (retry changes unit-tested only) |
-| 21 | **Week 3 checkpoint**: full live baseline (`docs/BASELINE.md`): 18/20 as run, 19/20 re-scored, $0.0005 per application; letter-length finding and prompt targets | ✅ Complete |
-| 22 | **Pain point**: `docs/PAIN_POINT.md`, why AI belongs and where it does not, with evidence table and stated limits | ✅ Complete (one placeholder for the author's own numbers) |
-| 23 | **Architecture**: `docs/ARCHITECTURE.md` (diagram, module map, decision records, limits); auth/quota errors stop the run; real attempt counts; OpenAI 400/404 classified; unused failure categories, `prompts.py` and `tiktoken` removed | ✅ Complete |
-| 24 | **Iteration story**: `docs/ITERATION_STORY.md`, eight turning points from the git history, patterns and what is still wrong | ✅ Complete |
-| 25 | **Engineer pitch**: `docs/PITCH_ENGINEER.md`, a 10-minute spoken script (about 1,190 words) with a live and an offline demo, Q&A prep and a rehearsal checklist | ✅ Written (recording is the author's) |
-| 26 | **VP pitch**: `docs/PITCH_VP.md`, a 5-minute spoken script (about 650 words) for a hiring VP of the Core AI Services team (job description in hand), with a one-slide visual (`docs/pitch_vp_slide.html`) and Q&A prep | ✅ Written (recording is the author's) |
-| 27-28 | Case study assembly, final review | ⏳ Planned |
-
----
-
 ## ⚙️ Setup
 
 ### Prerequisites
@@ -160,7 +136,7 @@ Verify everything works:
     # Use a different model for grounding and structure retries (default: same as --model)
     python -m src.job_agent.main "python engineer london" --model gpt-4o-mini --retry-model <stronger-model>
 
-Run these from the project root with the virtual environment active. `--max-jobs` defaults to 10. Without `--cv`, letters are written from a generic placeholder profile, not from your experience, so pass `--cv` for real use. Each run prints its token usage and estimated cost, and the report's summary repeats it. If an authentication or quota error stops the run, the CLI says so and prints the command to resume.
+Run these from the project root with the virtual environment active. `--max-jobs` defaults to 10. Without `--cv`, letters are written from a generic placeholder profile, not from your experience, so pass `--cv` for real use (`examples/dummy_cv.md` is a fictional CV to try it with). Facts about you that are not in the CV, such as where you are based or your work authorisation, can be given with `--candidate-note "..."` or the `CANDIDATE_NOTE` environment variable; nothing about the candidate is hardcoded in the prompt. Each run prints its token usage and estimated cost, and the report's summary repeats it. If an authentication or quota error stops the run, the CLI says so and prints the command to resume.
 
 ### 2. View the Audit Trail
 
@@ -197,6 +173,8 @@ Run these from the project root with the virtual environment active. `--max-jobs
     python -m evals.runner --scenarios-only
 
     # Real FreeHire and OpenAI calls (costs money; asks for confirmation)
+    # (the dataset points at private/alexandre_cv.md; put your own CV at that path, or edit cv_path in
+    #  evals/golden_dataset.json. Set CANDIDATE_NOTE in .env to include a candidate note.)
     python -m evals.runner --live --max-jobs 2 --limit 5
 
     # Stop a live run once its estimated cost passes a cap (checked between queries)
@@ -230,6 +208,7 @@ Reports are written to `evals/results/` (gitignored). Mock results say nothing a
 
     job-hunter-agent/
     ├── docs/
+    │   ├── CASE_STUDY.md             # Day 27: The whole story in a few pages (start here)
     │   ├── PITCH_VP.md               # Day 26: 5-minute VP pitch script and Q&A
     │   ├── pitch_vp_slide.html       # Day 26: The one slide for the VP pitch
     │   ├── PITCH_ENGINEER.md         # Day 25: 10-minute engineer pitch script, demo, Q&A
@@ -240,7 +219,7 @@ Reports are written to `evals/results/` (gitignored). Mock results say nothing a
     │   ├── baselines/                # Committed run summaries (*.summary.json) and stress-test result tables
     │   ├── FAILURE_TAXONOMY.md       # Day 20: Failure modes, evidence and gaps
     │   ├── MODEL_COMPARISON.md       # Day 19: Four-model comparison and its limits
-    │   └── PROGRESS.md               # Day 14 checkpoint progress report
+    │   └── PROGRESS.md               # Project log: what happened on each day
     ├── evals/
     │   ├── stress/                   # Day 22: Induced-fault experiments (faults.py offline; guards.py, api_errors.py live)
     │   ├── dataset_schema.py         # Day 15: Golden dataset models
@@ -254,7 +233,8 @@ Reports are written to `evals/results/` (gitignored). Mock results say nothing a
     │   ├── report.py                 # Day 16: Markdown and JSON eval reports
     │   ├── result_models.py          # Shared result types
     │   └── fixtures/mock_jobs.json   # Canned jobs for mock mode
-    ├── examples/                     # Sample keywords and a dummy CV
+    ├── .github/workflows/tests.yml   # Day 28: CI, runs the offline tests on every push
+    ├── examples/                     # Sample keywords and a fictional CV
     ├── tests/                        # Test suite (run with python -m pytest)
     │   └── scripts/demo_recovery.sh  # Day 14: Manual kill/resume demo (does not pass --cv: add it before real use)
     ├── src/
@@ -281,6 +261,7 @@ Reports are written to `evals/results/` (gitignored). Mock results say nothing a
     │       ├── check_openai.py       # Verifies the OpenAI key
     │       └── view_trace.py         # Audit trail viewer CLI
     ├── .env.example                  # Template for environment variables
+    ├── LICENSE                       # MIT
     ├── pyproject.toml                # Project metadata and dependencies
     └── README.md                     # This file
 
@@ -310,7 +291,7 @@ Reports are written to `evals/results/` (gitignored). Mock results say nothing a
 
 ## 🧪 Testing
 
-The test suite (284 tests) covers retry logic, timeout classification, checkpoint save/load, resume scenarios, partial completion, end-to-end recovery, the FreeHire search and research tools, the escalation policy, and the evaluation harness itself. Tests never touch the network: `tests/conftest.py` stubs company research for every test.
+The test suite (289 tests) covers retry logic, timeout classification, checkpoint save/load, resume scenarios, partial completion, end-to-end recovery, the FreeHire search and research tools, the escalation policy, and the evaluation harness itself. Tests never touch the network: `tests/conftest.py` stubs company research for every test.
 
     # Run all tests (use "python -m pytest" so the active environment's pytest is used)
     python -m pytest tests -q
@@ -347,7 +328,7 @@ These are honest, deliberate scope boundaries — not bugs.
 ## 🔮 Next Iteration Roadmap
 
 1. **Backoff ignores `Retry-After`** (see `docs/FAILURE_TAXONOMY.md`).
-2. **Week 4 case study documents** (Days 27-28) — assembly, final review.
+2. **Publication** — rehearse and record the two pitches.
 3. **Re-run the model comparison** on the current prompt to test the retry-model question.
 4. **End-client extraction** — Parse job descriptions to identify the actual hiring company when the listing is from a recruitment agency.
 5. **Human-in-the-loop approval** — Pause before generating cover letters so the candidate can approve the selected jobs.
@@ -367,4 +348,4 @@ These are honest, deliberate scope boundaries — not bugs.
 
 ## 📝 License
 
-This project is a personal portfolio prototype demonstrating Forward Deployed Software Engineering practices. Not intended for production use without further evaluation and security review.
+MIT, see [LICENSE](LICENSE). This project is a personal portfolio prototype demonstrating Forward Deployed Software Engineering practices. Not intended for production use without further evaluation and security review.

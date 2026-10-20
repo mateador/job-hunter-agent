@@ -4,7 +4,7 @@ Audience: a senior engineer who has not heard the story. Plain paragraphs are wh
 
 ## Before recording
 
-> **Pre-flight (5 minutes).** Venv active (`source .venv/bin/activate`), `OPENAI_API_KEY` set, network up, `python -m pytest tests -q` green (284 tests). Three terminals: A for the demo commands, B showing `docs/ARCHITECTURE.md` (the mermaid diagram rendered on GitHub or in the editor), C empty for a fallback. Clear `reports/` so the report you open is the new one. Increase the terminal font. Do one dry run of the live command below; it costs about $0.001 and sends the CV to OpenAI.
+> **Pre-flight (5 minutes).** Venv active (`source .venv/bin/activate`), `OPENAI_API_KEY` set, network up, `python -m pytest tests -q` green (289 tests). Three terminals: A for the demo commands, B showing `docs/ARCHITECTURE.md` (the mermaid diagram rendered on GitHub or in the editor), C empty for a fallback. Clear `reports/` so the report you open is the new one. Increase the terminal font. Do one dry run of the live command below; it costs about $0.001 and sends the CV to OpenAI.
 >
 > **Live command:** `python -m src.job_agent.main "python engineer london" --cv private/alexandre_cv.md --max-jobs 2`, then `python -m src.job_agent.view_trace --narrative`. Skip `--cv` and the letters will come from a placeholder profile. That is exactly the bug from Days 11 to 14.
 >
@@ -50,7 +50,7 @@ Where does this evidence come from? Real failures were almost absent. Across the
 
 ## 5:00 to 7:00 — Live demo
 
-> **DO:** terminal A. Run the live command. Narrate while it runs; it takes about 20 seconds.
+> **DO:** terminal A. Run the live command. Narrate while it runs; it takes about 10 seconds for two jobs.
 
 This is one search, two jobs, using my real CV. While it runs: it searches, decides per job whether to research, drafts, runs both checks, saves. At the end it prints the cost, here a fraction of a cent, and any warnings.
 
@@ -82,7 +82,7 @@ Here is what I don't claim. The grounding check covers numbers only, so an inven
 
 What I'd do next is turn it into a service: a versioned API, authentication, redacted tracing and concurrency. And an LLM-judge check for invented claims that have no figure, with a larger live sample for a real failure rate.
 
-The whole thing is about two thousand six hundred lines of Python, two hundred eighty-four tests, a failure document where every row says how it was observed, and a record of every mistake in this talk. Thank you.
+The whole thing is about two thousand seven hundred lines of Python, two hundred eighty-nine tests, a failure document where every row says how it was observed, and a record of every mistake in this talk. Thank you.
 
 ## Q&A prep (not part of the 10 minutes)
 
@@ -93,7 +93,7 @@ The whole thing is about two thousand six hundred lines of Python, two hundred e
 | What stops it fabricating? | Nothing absolute. A numeric grounding check plus a prompt rule, plus a human reading | Numbers only. One real fabrication was caught by the eval, not at runtime, before the guard existed |
 | Why `gpt-4o-mini`? | It passed 6/6 in the Day 19 comparison at the lowest cost; `gpt-4.1-mini` also passed at 2.85 times the cost, the gpt-5 models 3/6 | The comparison predates a prompt change; the retry-model question is open |
 | What does it cost? | About $0.0005 per application at list price | An estimate, not billing; failed attempts report no usage |
-| What happens at 1,000 jobs? Would it work as a platform service? | Not tested. It is sequential at roughly 4 seconds a job, and the search takes one page of results. As a service the first changes are concurrency, a job queue, a real store instead of JSONL files, and tenancy | No pagination, no deduplication across runs. None of the service parts is built |
+| What happens at 1,000 jobs? Would it work as a platform service? | Not tested. It is sequential at roughly 5 seconds a job (about 10 seconds for a search that drafts two letters), and the search takes one page of results. As a service the first changes are concurrency, a job queue, a real store instead of JSONL files, and tenancy | No pagination, no deduplication across runs. None of the service parts is built |
 | How would you expose it as a REST API? | Design intent, not built: `POST /v1/applications` accepting a search and a CV reference, returning a job id; `GET /v1/applications/{id}` for status and results; idempotency keys; an OpenAPI spec; a version in the path and a deprecation policy; async because a run takes seconds to minutes | The checkpoint state and the result object already look like the resource. No API code exists |
 | How would you secure it (OAuth2, OIDC, RBAC)? | Design intent, not built: OIDC for users, OAuth2 client credentials for service-to-service, roles per tenant, the CV never stored by default, prompts redacted in traces, retention limits | Today: the CV is gitignored and the key is an environment variable. The audit trail used to store full prompts, CV included; it now logs only lengths and a hash (tested). Checkpoints and reports still hold the generated letters, and there are no retention rules, no access control and no threat model |
 | Azure, Kubernetes, .NET? | Not in this project: Python on a laptop. Answer from your CV and say so plainly | The repo's CV lists Azure at a foundational level, and the model once invented an Azure-lead claim from it, so do not overstate it |

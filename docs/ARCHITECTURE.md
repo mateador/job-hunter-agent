@@ -49,7 +49,7 @@ At most three LLM calls per job: draft, structure retry, grounding retry. Jobs a
 | `agent_runner.py` | The pipeline: search, per-job loop, both guards, failure recording, abort, checkpointing |
 | `tools.py` | `search_freehire`, `search_duckduckgo`, `research_company`; each wrapped in the retry layer |
 | `research_policy.py` | `should_research`: the deterministic escalation rule and its reasons |
-| `application_generator.py` | Builds the prompt, calls the model, parses JSON; an unparseable or empty reply becomes an empty draft for the guard to catch |
+| `application_generator.py` | Builds the prompt (the only candidate-specific text is the CV and the optional `--candidate-note`), calls the model, parses JSON; an unparseable or empty reply becomes an empty draft for the guard to catch |
 | `format_rules.py` | One source for length limits and `application_defects` (shared by the prompt, the runtime guard and the evals, so they cannot drift) |
 | `grounding.py` | Extracts numbers and finds those absent from the allowed sources (shared with the evals) |
 | `llm_client.py` | The only OpenAI caller: retry, timeout, usage recording, per-call model routing, tagging calls by job and purpose |
@@ -130,7 +130,7 @@ Costs are list-price estimates (4 models in `pricing.json`); an unknown model is
 
 ### D9. Evals are the quality gate, and they are themselves tested
 A 20-query golden dataset in five categories, per-application checks (format, addressing, grounding), run-level checks (relevance, tool use, escalation), and a mock mode that validates the harness only. Rules: a heuristic check needs synthetic bad cases and a replay on saved real data; when a check never fails on real data, say so. Two checks produced false positives on real letters (a company slug where the letter used the trading name), and were fixed and re-scored on the same data, which the baseline notes as a limit.
-**Current numbers:** 17/20 as run and 18/20 after the check fix on the latest run, 19/20 on the previous one; the spread between identical code is about two queries. $0.0005 per application, mean 8-9s per query (`docs/BASELINE.md`).
+**Current numbers:** 17/20 as run and 18/20 after the check fix on the latest run, 19/20 on the previous one; the spread between identical code is about two queries. $0.0005 per application, about 10 s for a query that drafts two letters (`docs/BASELINE.md`).
 
 ### D10. A single LLM provider, behind one file
 All model calls go through `llm_client.py`. Swapping providers means changing that file and the exception mapping in `failures.py`. Not done, because no second provider is needed for the case.

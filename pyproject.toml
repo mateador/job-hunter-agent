@@ -7,6 +7,9 @@ name = "job-hunter-agent"
 version = "0.4.0"
 description = "An observable agentic workflow for job research and tailored application generation."
 requires-python = ">=3.10"
+readme = "README.md"
+license = {text = "MIT"}
+authors = [{name = "Alexandre Leite Silva"}]
 dependencies = [
     "openai>=1.40.0",
     "pydantic>=2.7.0",
@@ -15,6 +18,9 @@ dependencies = [
     "requests>=2.32.0",
     "ddgs>=6.0.0"
 ]
+
+[project.urls]
+Repository = "https://github.com/mateador/job-hunter-agent"
 
 [project.scripts]
 job-agent = "job_agent.main:main"

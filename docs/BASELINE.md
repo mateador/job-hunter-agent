@@ -1,8 +1,10 @@
 # Evaluation Baselines
 
-Three live runs. The **Day 22 re-run** is the current one because it is the only one that matches the present prompt; the Day 21 checkpoint and the Day 18 baseline are kept as the record and predate later changes (see below).
+Three live runs. The **Day 22 re-run** is the current one because it is the latest and matches the prompt of that time (the prompt lost a hardcoded personal sentence on Day 28, see the note below); the Day 21 checkpoint and the Day 18 baseline are kept as the record and predate later changes (see below).
 
 ---
+
+> **Note on the prompt (Day 28).** Until Day 27 the generation prompt contained one hardcoded sentence about the author (location and work authorisation). It was removed so the repository holds no personal details; the same facts can now be supplied with `--candidate-note` or `CANDIDATE_NOTE`. All results below were produced with the old prompt. Runs made after this change are not strictly comparable with them, which matters little for the pass-rate and cost figures but is stated here for honesty. No re-run was made.
 
 # Day 22 induced-guard experiment (live, real model)
 
@@ -36,7 +38,7 @@ Same command and dataset as Day 21, run after the prompt change (no "concise", l
 
 **17 of 20 queries passed (85%) as run; 18 of 20 after correcting the addressing check.** 19/19 offline scenarios passed. Standard 5/6, niche 3/4, broad 2/3, edge 4/4, agency 3/3. Format 88%, addressing 94%, grounding 100% (11 evaluated), relevance 100%.
 
-Cost: 34 calls, 92,429 tokens, **$0.0162 estimated, $0.0005 per application** (list price, not billing). Mean latency 9.06s (max 15.57s). 10 of 34 jobs researched, 0 failed.
+Cost: 34 calls, 92,429 tokens, **$0.0162 estimated, $0.0005 per application** (list price, not billing). Mean latency 9.06s over all 20 queries (the 17 that drafted letters averaged 10.6s; max 15.57s). 10 of 34 jobs researched, 0 failed.
 
 ## The three failures
 
@@ -99,7 +101,7 @@ Full live run after the Day 19-20 work: 20 golden queries, 34 jobs, real FreeHir
 
 **Cost (new, measured):** 34 LLM calls, 94,592 tokens (82,536 prompt, of which 43,008 cached; 12,056 completion), **$0.0164 estimated in total: $0.0005 per application, $0.0008 per query**. These are list-price estimates (`pricing.json`, verified by the user for four models), not billing; the author's `gpt-4o-mini` usage is currently free. Failed attempts report no usage, but this run had none.
 
-**Latency:** mean 8.4s per query (maximum 12.7s), against 10.0s on Day 18. One query is mostly the sequence search, up to two LLM calls and any research.
+**Latency:** mean 8.4s per query over all 20 queries, including 3 that return no jobs (the 17 queries that drafted two letters averaged 9.8s; maximum 12.7s), against 10.0s on Day 18. One query is mostly the sequence search, up to two LLM calls and any research.
 
 **Escalation:** 8 of 34 jobs researched via DuckDuckGo (0 failed). The rest: 20 had a rich description, 5 were agencies recognised by name (Hunter Bond, Ocho, Ocho People, GCS Recruitment twice), 1 company was already researched.
 

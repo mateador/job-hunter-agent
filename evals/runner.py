@@ -175,7 +175,8 @@ def run_query(query: GoldenQuery, live: bool, max_jobs: int, model: str, out_dir
         with ctx:
             agent = AgentRunner(audit_logger=audit_logger, checkpoint_manager=checkpoint_manager,
                                 model=model, max_jobs=max_jobs, cv_text=cv_text, retry_model=retry_model,
-                                reasoning_effort=reasoning_effort)
+                                reasoning_effort=reasoning_effort,
+                                candidate_note=os.getenv("CANDIDATE_NOTE") if live else None)
             output = agent.run(query.query)
         result.status = output["status"]
         result.jobs = [{**j.model_dump(), "description": (j.description or "")[:500],

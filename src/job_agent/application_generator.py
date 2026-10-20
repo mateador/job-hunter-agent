@@ -54,6 +54,7 @@ def generate_application(
     company_research: Optional[CompanyResearch] = None,
     candidate_profile: Optional[JobCandidate] = None,
     revision_note: Optional[str] = None,
+    candidate_note: Optional[str] = None,
 ) -> Application:
     """
     Generate a tailored cover letter and CV bullets for one specific job.
@@ -66,6 +67,8 @@ def generate_application(
         company_research: Optional company research data
         candidate_profile: Optional candidate profile (used if cv_text not provided)
         revision_note: Optional feedback on a previous draft, appended to the prompt
+        candidate_note: Optional facts about the candidate that are not in the CV (for example location
+            or work authorisation). Nothing about the candidate is hardcoded in the prompt.
 
     Returns:
         Application object with cover_letter and cv_bullets
@@ -90,6 +93,10 @@ def generate_application(
             research_context = "\n".join(research_parts) if research_parts else "Limited company information available."
 
     revision_section = f"\nREVISION REQUIRED:\n{revision_note}\n" if revision_note else ""
+    candidate_section_note = (
+        f"- Candidate context (use it where relevant, do not embellish it): {candidate_note.strip()}\n"
+        if candidate_note and candidate_note.strip() else ""
+    )
 
     prompt = f"""You are a professional career coach and technical writer.
 
@@ -114,7 +121,7 @@ Generate two things:
 2. COVER LETTER: Write a professional cover letter (3-4 paragraphs, {PROMPT_MIN_WORDS}-{PROMPT_MAX_WORDS} words in total including the greeting and sign-off) that:
 - Opens with genuine enthusiasm for the specific role and company
 - Connects 2-3 specific accomplishments to the job requirements
-- Addresses any potential concerns honestly (e.g., location, visa status)
+- Addresses any potential concerns honestly (e.g., location or work authorisation), using only facts from the CV or the candidate context
 - Closes with a clear call to action
 
 IMPORTANT RULES:
@@ -122,8 +129,7 @@ IMPORTANT RULES:
 - Do NOT invent skills, companies, or experience not present in the candidate's CV or profile.
 - Only state facts about the hiring company that appear in the job description or the company research above.
 - Keep the tone professional but authentic, not generic or overly formal.
-- The candidate is based in Cambridge, UK, and holds a Skilled Worker Visa Dependant (no sponsorship required).
-{revision_section}
+{candidate_section_note}{revision_section}
 Respond with valid JSON only, no Markdown, no code fences:
 {{
   "tailored_cv_bullets": ["bullet 1", "bullet 2", "bullet 3"],

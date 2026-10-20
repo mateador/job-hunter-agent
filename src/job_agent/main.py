@@ -5,6 +5,7 @@ Supports both query-based and CV-based workflows.
 import argparse
 import json
 import logging
+import os
 logging.getLogger("httpx").setLevel(logging.WARNING)
 logging.getLogger("openai").setLevel(logging.WARNING)
 import sys
@@ -138,6 +139,8 @@ Examples:
     parser.add_argument("query", nargs="?", help="Job search query (optional if using --keywords)")
     parser.add_argument("--cv", help="Path to CV markdown file")
     parser.add_argument("--keywords", help="Path to JSON file with keyword queries")
+    parser.add_argument("--candidate-note", help="Facts about you that are not in the CV (e.g. location, work authorisation), "
+                                                 "passed to the model. Also read from the CANDIDATE_NOTE environment variable")
 
     # Run configuration
     parser.add_argument("--max-jobs", type=int, default=10, help="Maximum jobs to process per query")
@@ -237,6 +240,7 @@ Examples:
             model=args.model,
             retry_model=args.retry_model,
             reasoning_effort=args.reasoning_effort,
+            candidate_note=args.candidate_note or os.getenv("CANDIDATE_NOTE"),
             max_jobs=args.max_jobs,
             cv_text=cv_text,
         )

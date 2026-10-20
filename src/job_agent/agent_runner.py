@@ -43,6 +43,7 @@ class AgentRunner:
         cv_text: Optional[str] = None,
         retry_model: Optional[str] = None,
         reasoning_effort: Optional[str] = None,
+        candidate_note: Optional[str] = None,
     ):
         self.audit_logger = audit_logger
         self.checkpoint_manager = checkpoint_manager
@@ -51,6 +52,7 @@ class AgentRunner:
                                     reasoning_effort=reasoning_effort)
         self.max_jobs = max_jobs
         self.cv_text = cv_text
+        self.candidate_note = candidate_note
 
     def run(
         self,
@@ -81,6 +83,11 @@ class AgentRunner:
                         f"Query mismatch: checkpoint was for '{saved_query}' "
                         f"but you requested '{query}'. "
                         f"Use the original query to resume."
+                    )
+                if state.get("has_candidate_note") and not self.candidate_note:
+                    raise ResumeError(
+                        "This run was started with a candidate note (--candidate-note or CANDIDATE_NOTE). "
+                        "Pass it again to resume, otherwise the remaining letters would be written without it."
                     )
                 if state.get("has_cv_text") and not self.cv_text:
                     raise ResumeError(
@@ -286,6 +293,7 @@ class AgentRunner:
                     cv_text=self.cv_text,
                     company_research=company_research,
                     revision_note=revision_note,
+                    candidate_note=self.candidate_note,
                 )
 
         app = self._repair_structure(job, generate(), generate)
@@ -457,5 +465,6 @@ class AgentRunner:
             "agent_messages": messages,
             "status": status,
             "has_cv_text": self.cv_text is not None,
+            "has_candidate_note": bool(self.candidate_note),
         }
         self.checkpoint_manager.save_checkpoint(state)

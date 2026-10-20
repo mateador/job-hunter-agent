@@ -10,7 +10,7 @@ The obvious fix is to hand the whole thing to a language model. That fix has a c
 
 ## Why AI belongs here
 
-Drafting a tailored letter from a CV and a posting is the one step that is real language work. Rules cannot do it, and a model does it for about $0.0005 per application (list price, `gpt-4o-mini`), with a whole query (search, optional research, up to two LLM calls) taking about 8 seconds on average.
+Drafting a tailored letter from a CV and a posting is the one step that is real language work. Rules cannot do it, and a model does it for about $0.0005 per application (list price, `gpt-4o-mini`), with a whole query that drafts two letters (search, optional research, two LLM calls) taking about 10 seconds.
 
 ## Where AI does not belong
 
@@ -39,7 +39,7 @@ From the Day 21 live run and a repeat on Day 22 (`docs/BASELINE.md`): 20 queries
 | Queries passing | 18/20 as run; 19/20 after fixing two false positives in my own addressing check. A repeat run on 2026-10-19 gave 17/20 as run, 18/20 after another fix to my own check (one more false positive; two letters under the 150-word floor are real), so the spread between identical runs is about two queries |
 | Grounding (numbers) | 100% of 11 evaluated queries in both runs, but the guard never fired in either |
 | Cost | $0.0164 total, $0.0005 per application (estimate, not billing); the repeat run was the same |
-| Latency | mean 8.4s per query (9.1s in the repeat) |
+| Latency | about 10 s for a query that drafts two letters (9.8 s, then 10.6 s in the repeat; the means over all 20 queries, including 3 that return nothing, are 8.4 s and 9.1 s) |
 | Research | 8 of 34 jobs researched; 5 agencies skipped by name (repeat: 10 researched, 6 skipped by name) |
 | Found and fixed on the way | FreeHire silently ignoring the search query; blank queries generating letters for random jobs; `--resume` silently skipping failed jobs and an empty model reply killing a job (both found by injecting faults); HTTP errors all classed as `UNKNOWN`; letters about 50 words shorter than the prompt asked (the model ignores numeric word targets, so the target was lowered to match, which did not stop 2 of 34 letters falling under the floor in the repeat run) |
 

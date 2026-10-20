@@ -1,229 +1,55 @@
-# Job Hunter Agent — Progress Report (Day 14 Checkpoint)
-
-**Project Duration:** 14 of 30 days  
-**Status:** Production-ready foundation complete  
-**Last Updated:** 2026-09-14 (corrected 2026-10-06)
-
-> **Correction note (Day 18).** This is a Day 14 snapshot. When reviewing it on Day 18 I found it described features that the code no longer had: the LLM-driven tool loop, the 12 guardrails, tiktoken context pruning, and company research were all removed or disconnected when `agent_runner.py` was rewritten for checkpointing in Day 11. The statements below have been corrected to match the code. On Day 24 a closer comparison of the Day 10 and Day 11 code found two things this note did not say: from Day 11 to Day 14 the letters were generated without the CV (from a placeholder profile), and the README's `--cv`/`--keywords` usage no longer matched the CLI. See `docs/ITERATION_STORY.md`. For the current state, see `README.md`.
-
----
-
-## Executive Summary
-
-We've built a resilient, observable AI agent for job hunting that can survive crashes, resume from checkpoints, and deliver partial results when individual jobs fail. The agent has processed real job listings through the FreeHire API, generated tailored cover letters and CV bullets via GPT-4o-mini, and maintained a complete audit trail of every decision.
-
-**Key achievement:** The agent can be killed mid-run (simulating OOM, network failure, or user interruption) and resume exactly where it left off, with full observability into what happened before and after the crash.
-
----
-
-## What's Been Built
-
-### Week 1: Core Agent (Days 1–7)
-
-| Day | Feature | Files |
-|-----|---------|-------|
-| 1 | Agent loop with tool execution (superseded in Day 11: replaced by a fixed pipeline) | agent_runner.py, main.py |
-| 2 | FreeHire API integration | tools.py |
-| 3 | DuckDuckGo research tool (written in tools.py but not called by the runner until Day 18) | tools.py |
-| 4 | 12 guardrails for LLM output (removed in Day 11; only `regions=uk` and `posted_within_days=30` remain, in the search call) | tools.py |
-| 5 | Context pruning to prevent overflow (removed in Day 11; no token counting remains) | — |
-| 6 | Tailored CV bullets + cover letters | application_generator.py |
-| 7 | JSONL audit trail + Markdown report | audit_logger.py, report_generator.py |
-
-**Outcome:** Pipeline that searches for jobs and generates application materials. (Company research was reconnected on Day 18.)
-
-### Week 2: Production Hardening (Days 8–14)
-
-| Day | Feature | Files |
-|-----|---------|-------|
-| 8 | Failure taxonomy (8 categories) | failures.py, docs/FAILURE_TAXONOMY.md |
-| 9 | Retry with exponential backoff | retry.py |
-| 10 | Timeout enforcement on all calls | config.py |
-| 11 | Checkpointing (JSONL state persistence) | checkpoint.py |
-| 12 | Robust resume with validation | checkpoint.py, agent_runner.py |
-| 13 | Partial completion with failure tracking | models.py, report_generator.py |
-| 14 | Recovery demo + checkpoint README | tests/test_recovery_demo.py, docs/PROGRESS.md |
-
-**Outcome:** Agent that survives crashes, resumes cleanly, and delivers partial results instead of failing entirely.
-
----
-
-## Architecture Decisions
-
-### Why JSONL for audit trails and checkpoints?
-
-**Decision:** Use JSONL (one JSON object per line) instead of SQLite or a single JSON file.
-
-**Tradeoffs considered:**
-- SQLite: Better for queries, but adds a dependency and makes the trace harder to inspect manually
-- Single JSON file: Simpler, but can't append incrementally (must rewrite entire file)
-- JSONL: Append-only, human-readable, easy to grep, no dependencies
-
-**Why JSONL won:**
-1. **Append-only writes** mean we never lose data on crash (no partial writes)
-2. **Human-readable** — you can `tail -f` the trace during a run
-3. **No dependencies** — just Python's built-in `json` module
-4. **Easy to process** — `jq`, `grep`, or Python can parse it line-by-line
-
-### Why bounded retry (3 attempts max)?
-
-**Decision:** Retry with exponential backoff, but cap at 3 attempts.
-
-**Tradeoffs considered:**
-- Infinite retry: Could eventually succeed, but risks infinite loops and unbounded cost
-- No retry: Fast failure, but wastes work on transient errors
-- Bounded retry: Balances resilience with predictability
-
-**Why 3 attempts:**
-1. Most transient errors (timeouts, 503s) resolve within 1-2 retries
-2. 3 attempts with exponential backoff (waits of 1s, then 2s between attempts) = ~3 seconds max wait
-3. After 3 failures, it's likely a persistent issue (auth, malformed request) that won't resolve itself
-4. Keeps the agent responsive — you don't want to wait 5 minutes for a job that will never succeed
-
-### Why centralized timeout config?
-
-**Decision:** All timeouts in `config.py`, not hardcoded in tools.
-
-**Tradeoffs considered:**
-- Hardcoded: Simpler, but hard to tune
-- Per-call config: Flexible, but inconsistent
-- Centralized: Single source of truth, easy to tune
-
-**Why centralized:**
-1. **Easy to tune** — change one file, all timeouts update
-2. **Consistent** — no tool accidentally uses 300s timeout
-3. **Observable** — you can log all timeout values at startup
-4. **Testable** — tests can verify timeout values are reasonable
-
-### Why checkpoint after every job?
-
-**Decision:** Save checkpoint after search, after each job, and at completion.
-
-**Tradeoffs considered:**
-- Checkpoint at start only: Minimal overhead, but loses all work on crash
-- Checkpoint after every job: More I/O, but survives crashes mid-run
-- Checkpoint at end only: No crash recovery
-
-**Why every job:**
-1. **Survives crashes** — if job #8 fails, you don't lose jobs #1-7
-2. **Enables resume** — you can pick up exactly where you left off
-3. **Minimal overhead** — JSONL append is fast (< 1ms)
-4. **Observable** — you can inspect checkpoint state at any time
-
----
-
-## Current State
-
-### Working Features
-
-- Agent searches FreeHire API for jobs
-- Company research via DuckDuckGo (reconnected on Day 18, not part of the Day 14 snapshot): only when the posting is thin (under 600 characters); agencies, missing companies and already-researched companies are skipped, and a research failure never fails the job
-- Agent generates tailored cover letters and CV bullets
-- Search guardrails: `regions=uk` and `posted_within_days=30` (the other Day 3-5 guardrails and context pruning no longer exist)
-- JSONL audit trail tracks every decision
-- Markdown report consolidates results
-- Failure taxonomy classifies 8 error categories
-- Retry with exponential backoff (3 attempts max)
-- Timeout enforcement on all external calls
-- Checkpointing after every job
-- Robust resume with state validation
-- Partial completion (delivers results even if some jobs fail)
-- Recovery demo proves kill/resume works end-to-end
-
-### Test Coverage
-
-- 31 tests across 5 test files
-- All tests passing
-- Coverage includes: retry logic, timeout classification, checkpoint save/load, resume scenarios, partial completion, full recovery cycle
-
-### Known Limitations
-
-- (Day 14 snapshot, since resolved: eval harness Days 15-16, cost tracking and model routing Day 19)
-- Agent doesn't yet handle pagination (only first page of results)
-- No deduplication of jobs across runs
-
----
-
-## What's Next
-
-### Week 3: Measure and Optimize (Days 15–21)
-
-- **Day 15:** Golden dataset (20 real queries with expected outputs)
-- **Day 16:** Eval harness (automated runner + scoring)
-- **Day 17:** Correctness + format evals
-- **Day 18:** Tool selection + escalation evals
-- **Day 19:** Cost measurement + model routing
-- **Day 20:** Failure mode documentation (done: `docs/FAILURE_TAXONOMY.md` rewritten from real trace data; agency-language signal; `FREEHIRE_REGIONS`; fixed HTTP error classification bug)
-- **Day 21:** CHECKPOINT — Eval report with pass rates, cost per run (done: `docs/BASELINE.md` Day 21 section, 18/20 as run, 19/20 after fixing two check false positives, $0.0005 per application)
-
-### Week 4: Communicate and Defend (Days 22–28)
-
-- **Day 22:** Pain point + why AI belongs (done: `docs/PAIN_POINT.md`, a page plus evidence table; one TODO left for the author's own job-search numbers; `--resume` and unused failure categories documented as known gaps, decision on Day 23; plus a live re-run `eval_live_20261019_162521`: 17/20 as run, recorded in `docs/BASELINE.md`)
-- **Day 23:** Architecture + decisions doc (done: `docs/ARCHITECTURE.md`; code changes: run stops on auth/quota errors, real `attempt_number`, OpenAI 400/404/422 classified, unused failure categories / `prompts.py` / `tiktoken` removed)
-- **Day 24:** Iteration story (what v1 got wrong, how it was fixed) (done: `docs/ITERATION_STORY.md`)
-- **Day 25:** Engineer pitch rehearsal (10-min recording) (done: script in `docs/PITCH_ENGINEER.md`; the recording and timing runs are the author's)
-- **Day 26:** VP pitch rehearsal (5-min recording) (done: script in `docs/PITCH_VP.md` and slide `docs/pitch_vp_slide.html`; recording is the author's)
-- **Day 27:** Case study assembly
-- **Day 28:** Final review + publication to GitHub
-
----
-
-## How to Run
-
-### Quick Start
-
-Install dependencies:
-
-    pip install -e .
-    pip install pytest
-
-Set API key:
-
-    export OPENAI_API_KEY="your-key-here"
-
-Run agent:
-
-    python -m src.job_agent.main "python engineer london" --max-jobs 5
-
-View audit trail:
-
-    python -m src.job_agent.view_trace --narrative
-
-List interrupted runs:
-
-    python -m src.job_agent.main --list-interrupted
-
-Resume from checkpoint:
-
-    python -m src.job_agent.main "python engineer london" --resume --run-id <RUN_ID>
-
-### Run Tests
-
-    python -m pytest tests -q
-
-### Run Recovery Demo
-
-Programmatic demo (no manual intervention):
-
-    pytest tests/test_recovery_demo.py -v -s
-
-Manual demo (interactive):
-
-    bash tests/scripts/demo_recovery.sh
-
----
-
-## Metrics
-
-- **Lines of code:** ~2,500 (excluding tests)
-- **Test count:** 31
-- **Files:** 14 Python modules, 5 test files, 2 docs
-- **External dependencies:** openai, ddgs, pydantic, rich, requests, python-dotenv (tiktoken was removed on Day 23)
-- **Days elapsed:** 14 of 30
-- **Days remaining:** 16
-
----
-
-## Contact
-
-This project is part of a 30-day Forward Deployed Software Engineer case study. For questions or feedback, see the full case study (coming Day 28).
+# Project Log
+
+A day-by-day record of what was built, reconstructed from the git history and the other documents. It replaces the Day 14 progress report, which described features the code no longer had (see `docs/ITERATION_STORY.md`). For the current design read `docs/ARCHITECTURE.md`; for the argument read `docs/CASE_STUDY.md`.
+
+How to read the dates: "Day N" is the project's numbering. Calendar dates are the dates of the commits, so several days often share one date, and there is an 18-day gap between Day 14 (Sept 14) and Day 15 (Oct 2). Commits from Sept 1 to Sept 7 cover Days 1 to 7 and are not mapped to single days.
+
+## Week 1: Build the loop (Days 1-7), Sept 1-7
+
+| Day | What happened | Outcome today |
+|---|---|---|
+| 1-3 | A model-driven agent: the model chose tools in a loop, searched FreeHire and researched companies, with a step limit and several guardrails (`9b4d767`, `d205b61`, `7153280`) | The loop was removed on Day 11. The `regions=uk` and `posted_within_days=30` search defaults remain |
+| 4 | Context management: token counting and pruning (`f77c550`) | Removed on Day 11; the `tiktoken` dependency was dropped on Day 23 |
+| 5 | JSONL audit trail and trace viewer (`9db89bf`) | Kept. Prompts were redacted from it on Day 26 |
+| 6 | Application generation: tailored CV bullets and cover letters, consolidated Markdown report (`e6af5f9`) | Kept |
+| 7 | Week 1 checkpoint (`0e4b9f6`) | Recorded as complete; the Day 11 rewrite changed what "complete" meant |
+
+## Week 2: Make it survive failure (Days 8-14), Sept 8-14
+
+| Day | What happened | Outcome today |
+|---|---|---|
+| 8 | Failure taxonomy: categories and retry policies (`572a691`) | Reduced to the 6 categories the code emits (Day 23) |
+| 9 | Bounded retry with exponential backoff, 3 attempts (`5d7d26a`). The search URL also changed in this commit (see Day 16) | Kept; backoff measured against the real API on Day 22 (1.01 s, then 2.01 s) |
+| 10 | Timeouts on all external calls (`68682bb`). The HTTP-error classification bug was introduced in this commit | Timeouts kept; the bug was fixed on Day 20 |
+| 11 | Checkpointing after every job (`1a96f6d`). **The same commit silently replaced the model loop with a fixed pipeline and disconnected the CV, research and job selection** | The fixed pipeline is the current design. The CV reached the generator again on Day 15 and research on Day 18 |
+| 12 | Robust resume: state validation, interrupted-run detection (`783d59f`) | Kept. Resume skipped failed jobs until Day 22 |
+| 13 | Partial completion: failed jobs recorded, run continues | Kept |
+| 14 | End-to-end recovery demo and progress report (`54f912d`) | The demo ran on mocks and the report overclaimed (corrected on Day 18) |
+
+## Week 3: Measure (Days 15-21), Oct 2-9
+
+| Day | Date | What happened | Evidence |
+|---|---|---|---|
+| 15 | Oct 2 | Golden dataset of 20 queries in 5 categories; `--cv` and `--keywords` restored and the CV passed to the generator again (`244c5de`, `7242aaf`) | Unit |
+| 16 | Oct 6 | Eval harness (mock and live) and scoring. The first live run showed FreeHire was ignoring the search query; fixed, with a check that raises if it happens again (`da0ee5e`). Blank queries rejected (`2efff5c`) | Live |
+| 17 | Oct 6 | Per-application checks: format, addressing, number grounding (`e456fd8`) | Unit and live |
+| 18 | Oct 6 | Deterministic research policy with 19 hand-labelled scenarios; first live baseline (19/20) caught one real fabrication; runtime grounding guard added; docs corrected (`17f13d2`, `56ceffc`) | Unit; live |
+| 19 | Oct 7-9 | Token and cost tracking, model router, four-model comparison (`56ceffc`, `da83d90`) | Live |
+| 20 | Oct 9 | Failure taxonomy rewritten with evidence labels; agency-language signal; HTTP classification bug fixed and more errors made retryable; structure guard (`da83d90`) | Unit |
+| 21 | Oct 9 | Week 3 checkpoint: live baseline, 18/20 as run, 19/20 re-scored, about $0.0005 per application (`docs/BASELINE.md`) | Live |
+
+## Week 4: Communicate and defend (Days 22-28), Oct 19 onward
+
+| Day | What happened | Evidence |
+|---|---|---|
+| 22 | `docs/PAIN_POINT.md`. Live re-run (17/20 as run, 18/20 re-scored). Induced faults and a live guard experiment found and fixed two bugs: resume skipped failed jobs, and an empty model reply killed a job (`7b627e2`) | Live; induced |
+| 23 | `docs/ARCHITECTURE.md`. Auth and quota errors stop the run, real attempt counts, OpenAI 400/404 classified, unused code and categories removed (`45ea120`) | Unit; induced |
+| 24 | `docs/ITERATION_STORY.md` (`45ea120`) | n/a |
+| 25 | `docs/PITCH_ENGINEER.md`, a 10-minute script. A README audit led to a fix: `--resume` now works without repeating the query, and refuses to resume a CV run without `--cv` (`9bb5fb3`) | Unit |
+| 26 | `docs/PITCH_VP.md` and one slide, tailored to the target job description. Found and fixed: the audit trail stored the full prompt, CV included (`43ccc3a`) | Unit |
+| 27 | `docs/CASE_STUDY.md`, this log rewritten, README as a landing page, consistency pass | n/a |
+| 28 | Final review: personal details removed from the prompt (optional `--candidate-note`), fictional example CV, MIT licence, CI workflow, packaging metadata, clean-copy install and test run, headline numbers recomputed from the saved results (one latency figure corrected) | Unit; verified on a clean copy |
+
+## Current state
+
+The headline numbers, with how each was obtained, are in the table in `docs/CASE_STUDY.md`. The detail is in `docs/BASELINE.md` (live runs), `docs/FAILURE_TAXONOMY.md` (failures) and `docs/baselines/` (committed result tables). Setup and commands are in `README.md`.
